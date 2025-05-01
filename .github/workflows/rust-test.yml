@@ -15,10 +15,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: test_rust
-
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -42,3 +38,4 @@ jobs:
       run: cargo clippy --all-targets --all-features
     - name: Check formatting
       run: cargo fmt --all --check
+
