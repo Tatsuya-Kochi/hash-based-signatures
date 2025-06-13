@@ -1,0 +1,241 @@
+   Compiling mylib v0.1.0 (/home/c0a20063/test_rust/hello_cargo/mylib)
+warning: unused import: `serde::de::value`
+   --> src/polynomial.rs:340:9
+    |
+340 |     use serde::de::value;
+    |         ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `crate::mpolynomial::MPolynomial`
+   --> src/stark.rs:417:9
+    |
+417 |     use crate::mpolynomial::MPolynomial;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::lamport_plus::LamportPlus`
+   --> src/agg_sig.rs:359:9
+    |
+359 |     use crate::lamport_plus::LamportPlus;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `modulus::FieldElement`
+   --> src/agg_sig.rs:360:9
+    |
+360 |     use modulus::FieldElement;
+    |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `expected_remainder`
+   --> src/polynomial.rs:451:13
+    |
+451 |         let expected_remainder = Polynomial::new(vec![
+    |             ^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected_remainder`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/mpolynomial.rs:502:17
+    |
+502 |             let mut mono1 = BTreeMap::new();
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `sum_const`
+   --> src/rescue_prime.rs:354:17
+    |
+354 |         let mut sum_const = MPolynomial::new(HashMap::new());
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sum_const`
+
+warning: variable does not need to be mutable
+   --> src/rescue_prime.rs:354:13
+    |
+354 |         let mut sum_const = MPolynomial::new(HashMap::new());
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `lamport`
+   --> src/lamport_plus.rs:356:13
+    |
+356 |         let lamport = LamportPlus::new();
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lamport`
+
+warning: unused variable: `counter`
+   --> src/lamport_plus.rs:378:26
+    |
+378 |         let (mined_bits, counter) = result.unwrap();
+    |                          ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_counter`
+
+warning: unused variable: `counter`
+   --> src/lamport_plus.rs:396:26
+    |
+396 |         let (mined_bits, counter) = result.unwrap();
+    |                          ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_counter`
+
+warning: unused variable: `pb`
+   --> src/lamport_plus.rs:398:18
+    |
+398 |         let (pr, pb) = lamport.keygen(&mined_bits);
+    |                  ^^ help: if this is intentional, prefix it with an underscore: `_pb`
+
+warning: unused variable: `counter`
+   --> src/lamport_plus.rs:417:26
+    |
+417 |         let (mined_bits, counter) = result.unwrap();
+    |                          ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_counter`
+
+warning: unused variable: `pb`
+   --> src/lamport_plus.rs:419:18
+    |
+419 |         let (pr, pb) = lamport.keygen(&mined_bits);
+    |                  ^^ help: if this is intentional, prefix it with an underscore: `_pb`
+
+warning: unused variable: `codewords`
+   --> src/fri.rs:554:13
+    |
+554 |         let codewords = fri.commit(codeword.clone(), &mut proof_stream);
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_codewords`
+
+warning: unused variable: `last_codeword`
+   --> src/fri.rs:557:13
+    |
+557 |         let last_codeword = codewords.last().unwrap();
+    |             ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_last_codeword`
+
+warning: unused variable: `last_omega`
+   --> src/fri.rs:558:17
+    |
+558 |         let mut last_omega = omega;
+    |                 ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_last_omega`
+
+warning: unused variable: `last_offset`
+   --> src/fri.rs:559:17
+    |
+559 |         let mut last_offset = offset;
+    |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_last_offset`
+
+warning: variable does not need to be mutable
+   --> src/fri.rs:558:13
+    |
+558 |         let mut last_omega = omega;
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/fri.rs:559:13
+    |
+559 |         let mut last_offset = offset;
+    |             ----^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: function `test_mpolynomial_pow` is never used
+   --> src/mpolynomial.rs:584:8
+    |
+584 |     fn test_mpolynomial_pow() {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `test_keygen` is never used
+   --> src/lamport_plus.rs:369:8
+    |
+369 |     fn test_keygen() {
+    |        ^^^^^^^^^^^
+
+warning: function `test_sign_and_verify` is never used
+   --> src/lamport_plus.rs:387:8
+    |
+387 |     fn test_sign_and_verify() {
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `test_verify_with_trace` is never used
+   --> src/lamport_plus.rs:408:8
+    |
+408 |     fn test_verify_with_trace() {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `test_prove_and_verify_success` is never used
+   --> src/fri.rs:520:8
+    |
+520 |     fn test_prove_and_verify_success() {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `mylib` (lib test) generated 25 warnings (run `cargo fix --lib -p mylib --tests` to apply 8 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.14s
+     Running unittests src/lib.rs (target/debug/deps/mylib-4ed8d8b7b5beddcd)
+
+running 46 tests
+test fri::tests::test_sample_indices_error_conditions ... ok
+test fri::tests::test_sample_indices_determinism ... ok
+test fri::tests::test_sample_indices_validity_and_uniqueness ... ok
+test merkle::tests::test_blake_merkle_commit_open_verify ... ok
+test lamport_plus::tests::test_mine_message_finds_solution ... ok
+test modulus::tests::test_from_bits ... ok
+test modulus::tests::test_modulus_mul ... ok
+test modulus::tests::test_sample ... ok
+test modulus::tests::test_modulus_sub ... ok
+test modulus::tests::test_modulus_add ... ok
+test modulus::tests::test_modulus_pow ... ok
+test mpolynomial::tests::test_mpolynomial_evaluate ... ok
+test mpolynomial::tests::test_mpolynomial_evaluate_symbolic ... ok
+test mpolynomial::tests::test_mpolynomial_add ... ok
+test mpolynomial::tests::test_lift ... ok
+test mpolynomial::tests::test_mpolynomial_mul ... ok
+test mpolynomial::tests::test_mpolynomial_sub ... ok
+test modulus::tests::test_inverse ... ok
+test mpolynomial::tests::test_mpolynomial_negate ... ok
+test mpolynomial::tests::test_transition_constraints ... ok
+test mpolynomial::tests::test_variables ... ok
+test modulus::tests::test_modulus_div ... ok
+test polynomial::tests::test_divide_with_remainder ... ok
+test polynomial::tests::test_divide_zero_numerator ... ok
+test polynomial::tests::test_evaluate ... ok
+test polynomial::tests::test_evaluate_domain ... ok
+test polynomial::tests::test_polynomial_add ... ok
+test polynomial::tests::test_polynomial_div_no_reminder ... ok
+test polynomial::tests::test_polynomial_mul ... ok
+test polynomial::tests::test_polynomial_pow ... ok
+test polynomial::tests::test_polynomial_scale ... ok
+test polynomial::tests::test_zerofier_domain ... ok
+test proofstream::tests::test_fiat_shamir_consistency ... ok
+test proofstream::tests::test_fiat_shamir_diff ... ok
+test proofstream::tests::test_push_and_pull ... ok
+test proofstream::tests::test_serialize_deserialize ... ok
+test polynomial::tests::test_polynomial_sub ... ok
+test polynomial::tests::test_interpolate_domain ... ok
+test rescue_prime::tests::test_hash_with_trace ... ok
+test rescue_prime::tests::test_update_with_trace ... ok
+test rescue_prime::tests::test_rescue_hash_deterministic ... ok
+test rescue_prime::tests::test_rescue_hash_collision_resistance ... ok
+test merkle::tests::test_rescue_merkle_commit_open_verify ... ok
+test stark::tests::test_boundary_interpolants ... ok
+test stark::tests::test_boundary_zerofiers ... ok
+test fri::tests::test_codewords ... FAILED
+
+failures:
+
+---- fri::tests::test_codewords stdout ----
+commit_omega=FieldElement { value: 317382179358537364646726782080101653266, field: Field { p: 340282366920938463463374557953744961537 } }, FieldElement { value: 6561, field: Field { p: 340282366920938463463374557953744961537 } }
+test_omega=FieldElement { value: 317382179358537364646726782080101653266, field: Field { p: 340282366920938463463374557953744961537 } }, FieldElement { value: 6561, field: Field { p: 340282366920938463463374557953744961537 } }
+last_domain: [FieldElement { value: 83737537015097400980107252073087094973, field: Field { p: 340282366920938463463374557953744961537 } }, FieldElement { value: 79815460479162102507501624458750315529, field: Field { p: 340282366920938463463374557953744961537 } }, FieldElement { value: 274096143417777972126522437806823942815, field: Field { p: 340282366920938463463374557953744961537 } }]
+last_codeword: [FieldElement { value: 6561, field: Field { p: 340282366920938463463374557953744961537 } }, FieldElement { value: 156675582141191514785497108581527433323, field: Field { p: 340282366920938463463374557953744961537 } }, FieldElement { value: 39005479933400821706556350017912709322, field: Field { p: 340282366920938463463374557953744961537 } }]
+❌ mismatch at 1: expected 79815460479162102507501624458750315529, got 11230041179840949471046997306055471291
+
+thread 'fri::tests::test_codewords' panicked at src/fri.rs:514:17:
+assertion `left == right` failed: Polynomial evaluation mismatch at index 1
+  left: FieldElement { value: 79815460479162102507501624458750315529, field: Field { p: 340282366920938463463374557953744961537 } }
+ right: FieldElement { value: 11230041179840949471046997306055471291, field: Field { p: 340282366920938463463374557953744961537 } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    fri::tests::test_codewords
+
+test result: FAILED. 45 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.70s
+
+error: test failed, to rerun pass `--lib`

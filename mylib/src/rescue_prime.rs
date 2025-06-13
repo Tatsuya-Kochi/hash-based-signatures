@@ -1,34 +1,34 @@
 use std::vec;
-
 use crate::modulus;
-use modulus::Field as Field;
-use modulus::FieldElement as FieldElement;
+use modulus::{Field, FieldElement};
+use crate::mpolynomial::MPolynomial;
+use std::collections::{BTreeMap, HashMap};
 
 pub struct RescuePrime {
     pub p: u128,
     pub field: Field,
-    m: usize,
-    N: usize,
+    pub m: usize,
+    step_n: usize,
     alpha: u128,
     alphainv: u128,
-    pub MDS: Vec<Vec<FieldElement>>,
-    pub MDSinv: Vec<Vec<FieldElement>>,
+    pub mds: Vec<Vec<FieldElement>>,
+    pub mdsinv: Vec<Vec<FieldElement>>,
     pub round_constants: Vec<FieldElement>,
-    capacity_state: Vec<FieldElement> // キャパシティ部分の状態を保持
+    pub capacity_state: Vec<FieldElement> // キャパシティ部分の状態を保持
 }
 
 impl RescuePrime {
     pub fn new() -> Self {
         let p = 340282366920938463463374557953744961537; //(1 << 128) - 45 * (1 << 40) + 1;
-        let field = Field { p: p };
+        let field = Field { p };
         let alpha = 5;
         let alphainv = 272225893536750770770699646362995969229;
         let m = 6;
-        let N = 7;
-        let mut  capacity_state = vec![field.zero(), field.zero()];
+        let step_n = 7;
+        let capacity_state = vec![field.zero(); 2];
 
 
-        let MDS = vec![
+        let mds = vec![
             vec![
                 FieldElement{value: 340282366920938463463374557953730612630, field},
                 FieldElement{value: 21493836, field},
@@ -79,7 +79,7 @@ impl RescuePrime {
             ]
         ];
 
-        let MDSinv = vec![
+        let mdsinv = vec![
             vec![
                 FieldElement{value: 133202720344903784697302507504318451498, field},
                 FieldElement{value: 9109562341901685402869515497167051415, field},
@@ -222,100 +222,273 @@ impl RescuePrime {
             p,
             field,
             m,
-            N,
+            step_n,
             alpha,
             alphainv,
-            MDS,
-            MDSinv,
+            mds,
+            mdsinv,
             round_constants,
             capacity_state
         }
     }
 
-    pub fn hash(&self, mut input_element: Vec<FieldElement>) -> Vec<FieldElement> {
-        // イテレータ→ベクター
-        input_element.extend(vec![FieldElement{value: 0, field: self.field}; self.m - input_element.len()]);
-        let mut state = input_element;
-
-        for r in 0..self.N {
-            // forward half-round
-            for i in 0..self.m {
-                state[i] = state[i] ^ (self.alpha);
+    fn mul_mds(&self, state: [FieldElement; 6]) -> [FieldElement; 6] {
+        let mut temp = [self.field.zero(); 6];
+        for i in 0..6 {
+            for j in 0..6 {
+                temp[i] = &temp[i] + &(&self.mds[i][j] * &state[j]);
             }
+        }
+        temp
+    }
 
-            let mut temp = vec![FieldElement{value: 0, field: self.field}; self.m];
+    fn permute(&self, mut state: [FieldElement; 6]) -> [FieldElement; 6] {
+        for r in 0..self.step_n {
             for i in 0..self.m {
-                for j in 0..self.m {
-                    temp[i] = temp[i] + self.MDS[i][j] * state[j];
-                }
+                state[i] = state[i] ^ self.alpha;
             }
-
+            state = self.mul_mds(state);
             for i in 0..self.m {
-                state[i] = temp[i] + self.round_constants[2 * r * self.m + i];
+                state[i] = &state[i] + &self.round_constants[2 * r * self.m + i];
             }
-
-            // backward half-round
             for i in 0..self.m {
                 state[i] = state[i] ^ self.alphainv;
             }
-
-            let mut temp = vec![FieldElement{value: 0, field: self.field}; self.m];
+            state = self.mul_mds(state);
             for i in 0..self.m {
-                for j in 0..self.m {
-                    temp[i] = temp[i] + self.MDS[i][j] * state[j];
-                }
-            }
-
-            for i in 0..self.m {
-                state[i] = temp[i] + self.round_constants[2 * r * self.m + self.m + i];
+                state[i] = &state[i] + &self.round_constants[2 * r * self.m + self.m + i];
             }
         }
-
-        vec![state[0].clone(), state[1].clone()]
+        state
     }
-    pub fn update(&mut self, mut input_element: Vec<FieldElement>) -> Vec<FieldElement> {
-        // イテレータ→ベクター
-        input_element.extend(&self.capacity_state);
-        let mut state = input_element;
+    /// トレース付き permute（各ステップの状態を返す）
+    pub fn permute_with_trace(&self, mut state: [FieldElement; 6]) -> ([[FieldElement; 6]; 8], [FieldElement; 6]) {
+        let mut trace = [[Field::zero(self.field); 6]; 8];
+        trace[0] = state;
 
-        for r in 0..self.N {
-            // forward half-round
-            for i in 0..self.m {
-                state[i] = state[i] ^ (self.alpha);
+        for r in 0..self.step_n {
+            for i in 0..6 {
+                state[i] = state[i] ^ self.alpha;
+            }
+            state = self.mul_mds(state);
+            for i in 0..6 {
+                state[i] = &state[i] + &self.round_constants[2 * r * self.m + i];
             }
 
-            let mut temp = vec![FieldElement{value: 0, field: self.field}; self.m];
-            for i in 0..self.m {
-                for j in 0..self.m {
-                    temp[i] = temp[i] + self.MDS[i][j] * state[j];
-                }
-            }
-
-            for i in 0..self.m {
-                state[i] = temp[i] + self.round_constants[2 * r * self.m + i];
-            }
-
-            // backward half-round
-            for i in 0..self.m {
+            for i in 0..6 {
                 state[i] = state[i] ^ self.alphainv;
             }
-
-            let mut temp = vec![FieldElement{value: 0, field: self.field}; self.m];
-            for i in 0..self.m {
-                for j in 0..self.m {
-                    temp[i] = temp[i] + self.MDS[i][j] * state[j];
-                }
+            state = self.mul_mds(state);
+            for i in 0..6 {
+                state[i] = &state[i] + &self.round_constants[2 * r * self.m + self.m + i];
             }
-
-            for i in 0..self.m {
-                state[i] = temp[i] + self.round_constants[2 * r * self.m + self.m + i];
-            }
+            trace[r+1] = state;
         }
-        self.capacity_state = vec![state[4], state[5]];
 
-        vec![state[0].clone(), state[1].clone()]
+        (trace, state)
     }
-    pub fn clear_capacity(&mut self) {
-        self.capacity_state = vec![self.field.zero(), self.field.zero()]
+
+    // 複数の入力に対して並列処理することは可能
+    pub fn hash(&self, input_element: [FieldElement; 4]) -> [FieldElement; 2] {
+        let state: [FieldElement; 6] = [
+            input_element[0],
+            input_element[1],
+            input_element[2],
+            input_element[3],
+            self.field.zero(),
+            self.field.zero(),
+        ];
+        let result = self.permute(state);
+        [result[0], result[1]]
+    }
+
+    /// トレース付きハッシュ
+    pub fn hash_with_trace(&self, input_element: [FieldElement; 4]) -> ([[FieldElement; 6]; 8], [FieldElement; 2]) {
+        let state: [FieldElement; 6] = [
+            input_element[0],
+            input_element[1],
+            input_element[2],
+            input_element[3],
+            self.field.zero(),
+            self.field.zero(),
+        ];
+        let (trace, result) = self.permute_with_trace(state);
+        (trace, [result[0], result[1]])
+    }
+
+    pub fn update(&mut self, input_element: [FieldElement; 4]) -> [FieldElement; 2] {
+        let state = [
+            input_element[0],
+            input_element[1],
+            input_element[2],
+            input_element[3],
+            self.capacity_state[0],
+            self.capacity_state[1],
+        ];
+        let result = self.permute(state);
+        self.capacity_state = vec![result[4], result[5]];
+        [result[0], result[1]]
+    }
+    /// トレース付き update
+    pub fn update_with_trace(&mut self, input_element: [FieldElement; 4]) -> ([[FieldElement; 6]; 8], [FieldElement; 2]) {
+        let state: [FieldElement; 6] = [
+            input_element[0],
+            input_element[1],
+            input_element[2],
+            input_element[3],
+            self.capacity_state[0],
+            self.capacity_state[1],
+        ];
+        let (trace, result) = self.permute_with_trace(state);
+        self.capacity_state = vec![result[4], result[5]];
+        (trace, [result[0], result[1]])
+    }
+
+    // Rescue AIRの計算 Σmj M[i,j](S[j]^α + C2im[j]^α) - (Σ Minv[i,j](S[j] + C2im[m+j]))^α
+    pub fn rescue_air_round(
+        &self,
+        index: usize, // どこのレジスタを指すか
+        step: usize,  // どのステップのAIRを計算するか
+    ) -> MPolynomial {
+        let mut rescue_air: MPolynomial = MPolynomial::new(HashMap::new());
+        let mut sum_const = MPolynomial::new(HashMap::new());
+        for i in 0..self.m {
+            let mut dict = HashMap::new();
+            let mut mono = BTreeMap::new();
+            mono.insert(index+i, self.alpha as usize);
+            // S[j]^α * M[i, j]の計算
+            dict.insert(mono, self.mds[step][index]);
+
+            rescue_air = &rescue_air + &MPolynomial::new(dict);
+
+            // 定数の計算
+            let mut dict: HashMap<BTreeMap<usize, usize>, FieldElement> = HashMap::new();
+            // M[i, j] * C2im[j]^αの計算
+            let temp = &self.mds[step][i] * &self.round_constants[2 * index * self.m + i].pow(self.alpha as u128);
+            dict.insert(BTreeMap::new(), temp);
+            rescue_air = &rescue_air + &MPolynomial::new(dict);
+        }
+
+        // 次ステップの状態を計算
+        let num_registers = 22;
+        let mut sum_mpolynomial = MPolynomial::new(HashMap::new());
+        for i in 0..self.m {
+            let mut dict = HashMap::new();
+            let mut mono = BTreeMap::new();
+            mono.insert(index+i+num_registers, 1);
+            // Minv[i, j] * (S[j]' - C2im[m+j])の計算
+            dict.insert(mono, self.mdsinv[step][index]);
+            sum_mpolynomial = &sum_mpolynomial + &MPolynomial::new(dict);
+
+            // 定数の計算
+            let mut dict: HashMap<BTreeMap<usize, usize>, FieldElement> = HashMap::new();
+            // Minv[i, j] * -C2im[m+j]の計算
+            dict.insert(BTreeMap::new(), (&self.mdsinv[step][index] * &self.round_constants[2 * index * self.m + self.m + i]).negate());
+            sum_mpolynomial = &sum_mpolynomial + &MPolynomial::new(dict);
+        }
+        // -()^α
+        sum_mpolynomial = (&sum_mpolynomial.pow(self.alphainv)).negate();
+        rescue_air = &rescue_air + &sum_mpolynomial;
+        rescue_air
+    }
+    
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    // 決定性の確認
+    fn test_rescue_hash_deterministic() {
+        let rescue = RescuePrime::new();
+        let input = [
+            FieldElement { value: 1, field: rescue.field },
+            FieldElement { value: 2, field: rescue.field },
+            FieldElement { value: 3, field: rescue.field },
+            FieldElement { value: 4, field: rescue.field },
+        ];
+        let result1 = rescue.hash(input);
+        let result2 = rescue.hash(input); // 再度ハッシュを計算
+        assert_eq!(result1, result2);
+    }
+    #[test]
+    // 衝突確認
+    fn test_rescue_hash_collision_resistance() {
+        let rescue = RescuePrime::new();
+        let input = [
+            FieldElement { value: 1, field: rescue.field },
+            FieldElement { value: 2, field: rescue.field },
+            FieldElement { value: 3, field: rescue.field },
+            FieldElement { value: 4, field: rescue.field },
+        ];
+        let input2 = [
+            FieldElement { value: 1, field: rescue.field },
+            FieldElement { value: 2, field: rescue.field },
+            FieldElement { value: 3, field: rescue.field },
+            FieldElement { value: 1, field: rescue.field },
+        ];
+        let result1 = rescue.hash(input);
+        let result2 = rescue.hash(input2);
+        assert_ne!(result1, result2);
+    }
+    #[test]
+    fn test_hash_with_trace() {
+        let rescue = RescuePrime::new();
+
+        let input = [
+            FieldElement::new(1, rescue.field),
+            FieldElement::new(2, rescue.field),
+            FieldElement::new(3, rescue.field),
+            FieldElement::new(4, rescue.field),
+        ];
+        let first_state = [
+            FieldElement::new(1, rescue.field),
+            FieldElement::new(2, rescue.field),
+            FieldElement::new(3, rescue.field),
+            FieldElement::new(4, rescue.field),
+            FieldElement::new(0, rescue.field),
+            FieldElement::new(0, rescue.field),
+        ];
+        let (trace, final_state) = rescue.hash_with_trace(input);
+
+        // traceの長さは step_n + 1
+        assert_eq!(trace.len(), 8);
+
+        // 初期状態がtrace[0]と一致
+        assert_eq!(trace[0], first_state);
+
+        // traceの最後の行の先頭2要素が final_state の先頭2要素と一致
+        let last_row = trace.last().unwrap();
+        assert_eq!(last_row[0], final_state[0]);
+        assert_eq!(last_row[1], final_state[1]);
+    }
+    #[test]
+    fn test_update_with_trace() {
+        let mut rescue = RescuePrime::new();
+
+        let input = [
+            FieldElement::new(1, rescue.field),
+            FieldElement::new(2, rescue.field),
+            FieldElement::new(3, rescue.field),
+            FieldElement::new(4, rescue.field),
+        ];
+        let first_state = [
+            FieldElement::new(1, rescue.field),
+            FieldElement::new(2, rescue.field),
+            FieldElement::new(3, rescue.field),
+            FieldElement::new(4, rescue.field),
+            rescue.capacity_state[0],
+            rescue.capacity_state[1],
+        ];
+        let (trace, final_state) = rescue.update_with_trace(input);
+        assert_eq!(trace.len(), 8); // traceの長さは step_n + 1
+        assert_eq!(trace[0], first_state);
+        // traceの最後の行の先頭2要素が final_state の先頭2要素と一致
+        let last_row = trace.last().unwrap();
+        assert_eq!(last_row[0], final_state[0]);
+        assert_eq!(last_row[1], final_state[1]);
+        // capacity_stateの更新が正しいか確認
+        assert_eq!(rescue.capacity_state[0], last_row[4]);
+        assert_eq!(rescue.capacity_state[1], last_row[5]);
     }
 }
