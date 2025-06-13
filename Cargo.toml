@@ -9,3 +9,5 @@ num-traits = "0.2"
 num-integer = "0.1.46"
 hmac = "0.12.1"
 sha2 = "0.10.8"
+mylib = { path = "./mylib" }
+blake3 = "1.5.4"

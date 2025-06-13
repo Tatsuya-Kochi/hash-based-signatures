@@ -1,20 +1,20 @@
-use sha2::Sha256;
-use hmac::{Hmac, Mac, NewMac};
+fn main() {
+    let number: u128 = 340282366920938463463374607431768211156;
+    
+    let binary_string = format!("{:b}", number);
+    let index = 127;
+    if let Some(character) = binary_string.chars().nth(index) {
+        println!("Character at index {}: {}", index, character);
+    } else {
+        println!("Index out of bounds.");
+    }
+    // 結果を表示
+    println!("The binary representation of {} is {}", number, binary_string);
 
-fn main(){
-    // Create alias for HMAC-SHA256
-    type HmacSha256 = Hmac<Sha256>;
+    let binary_string = String::from("1111"); // 13 in decimal
 
-    // Create HMAC-SHA256 instance which implements `Mac` trait
-    let mut mac = HmacSha256::new_varkey(b"my secret and secure key")
-        .expect("HMAC can take key of any size");
-    mac.update(b"input message");
+    // 基数2（ビット）の文字列を10進数に変換
+    let decimal_number = u64::from_str_radix(&binary_string, 2).expect("Failed to convert");
 
-    // `result` has type `Output` which is a thin wrapper around array of
-    // bytes for providing constant time equality check
-    let result = mac.finalize();
-    // To get underlying array use `into_bytes` method, but be careful, since
-    // incorrect use of the code value may permit timing attacks which defeat
-    // the security provided by the `Output`
-    let code_bytes = result.into_bytes();
+    println!("Decimal number: {}", decimal_number); // 出力: Decimal number: 13
 }

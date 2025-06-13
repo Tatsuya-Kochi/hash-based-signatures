@@ -1,3 +1,4 @@
+extern crate rand;
 fn main() {
     pub fn xgcd(a: u128, b: u128) -> (u128, u128, u128) {
         let (mut old_r, mut r): (u128, u128) = (a, b);
