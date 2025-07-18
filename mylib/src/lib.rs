@@ -9,6 +9,7 @@ pub mod fri;    // FRIモジュール
 pub mod stark;  // STARKモジュール
 pub mod agg_sig; // 集約署名モジュール
 pub mod threshold_sig; // 閾値署名モジュール
+pub mod arion_hash; // Arionハッシュモジュール
 
 // テスト対象外
 /*

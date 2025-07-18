@@ -4,7 +4,6 @@ use modulus::Field as Field;
 use crate::merkle::{Merkle, prepare_data};
 use crate::proofstream::ProofStream;
 use crate::polynomial::Polynomial;
-use std::collections::HashSet;
 
 pub struct Fri {
     offset: FieldElement,  // 評価ドメインの初期オフセット
