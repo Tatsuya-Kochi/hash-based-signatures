@@ -581,6 +581,7 @@ mod tests {
 
         assert_eq!(result, expected);
     }
+    #[test]
     fn test_mpolynomial_pow() {
         let p = 340282366920938463463374557953744961537;
         let field = Field { p };
