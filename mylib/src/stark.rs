@@ -6,7 +6,7 @@ use crate::proofstream::ProofStream;
 use crate::polynomial::Polynomial;
 use crate::mpolynomial::MPolynomial;
 use crate::fri::Fri;
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 pub struct Stark {
     pub field: Field,
@@ -15,10 +15,11 @@ pub struct Stark {
     pub security_level: usize,
     pub num_registers: usize,
     pub original_trace_length: usize,
-    pub num_randomizers: usize,
+    pub num_randomizers: usize, 
     pub generator: FieldElement,
     pub omega: FieldElement,
     pub omicron: FieldElement,
+    pub trace_omicron: FieldElement,
     pub omicron_domain: Vec<FieldElement>,
     pub fri: Fri,
 }
@@ -38,18 +39,31 @@ impl Stark {
         assert!(expansion_factor >= 4, "expansion factor must be 4 or greater");
         //assert!(num_colinearity_checks * 2 >= security_level, "number of colinearity checks must be at least half of security level");
 
-        let num_randomizers = 4 * num_colinearity_checks;
+        let num_randomizers = 0; // 互換のためフィールドは残すが 0 固定
         let original_trace_length = num_cycles;
-        let randomized_trace_length = original_trace_length + num_randomizers;
-        let omicron_domain_length = 1 << ((randomized_trace_length * transition_constraints_degree).next_power_of_two().trailing_zeros());
+
+        // omicron_domain_length は (original_trace_length * transition_constraints_degree) を2冪切り上げ
+        let omicron_domain_length = 1 << (
+            (original_trace_length * transition_constraints_degree)
+                .next_power_of_two()
+                .trailing_zeros()
+        );
         let fri_domain_length = omicron_domain_length * expansion_factor;
 
         let generator = field.generator();
-        let omega = field.primitive_nth_root(fri_domain_length as u128);
-        let omicron = field.primitive_nth_root(omicron_domain_length as u128);
-        let omicron_domain: Vec<FieldElement> = (0..omicron_domain_length)
-            .map(|i| omicron.pow(i as u128))
-            .collect();
+        let omega    = field.primitive_nth_root(fri_domain_length as u128);
+        let omicron  = field.primitive_nth_root(omicron_domain_length as u128);
+
+        assert!(original_trace_length > 0, "original_trace_length must be greater than 0");
+        assert!(
+            omicron_domain_length % original_trace_length == 0,
+            "omicron domain length must be a multiple of the trace length"
+        );
+        let stride = omicron_domain_length / original_trace_length;
+        let trace_omicron = omicron.pow(stride as u128); // 位数 = trace_len の根
+
+        let omicron_domain: Vec<FieldElement> =
+            (0..omicron_domain_length).map(|i| omicron.pow(i as u128)).collect();
 
         let fri = Fri::new(generator, omega, fri_domain_length as u128, expansion_factor, num_colinearity_checks);
 
@@ -64,14 +78,29 @@ impl Stark {
             generator,
             omega,
             omicron,
+            trace_omicron,
             omicron_domain,
             fri,
         }
     }
 
+    fn trace_point_at(&self, step: usize) -> FieldElement {
+        self.trace_omicron.pow(step as u128)
+    }
+
+    fn trace_domain_prefix(&self, length: usize) -> Vec<FieldElement> {
+        let mut domain = Vec::with_capacity(length);
+        let mut current = self.field.one();
+        for _ in 0..length {
+            domain.push(current);
+            current = &current * &self.trace_omicron;
+        }
+        domain
+    }
+
     pub fn transition_zerofier(&self) -> Polynomial {
-        let domain = &self.omicron_domain[..(self.original_trace_length - 1)];
-        Polynomial::zerofier_domain(domain)
+        let domain = self.trace_domain_prefix(self.original_trace_length - 1);
+        Polynomial::zerofier_domain(&domain)
     }
 
     // boundary:境界制約 Vec<(usize, usize, FieldElement)>
@@ -82,9 +111,8 @@ impl Stark {
             let points: Vec<FieldElement> = boundary
                 .iter()
                 .filter(|(_, r, _)| *r == s)
-                .map(|(c, _, _)| self.omicron.pow(*c as u128))
+                .map(|(c, _, _)| self.trace_point_at(*c))
                 .collect();
-            // 境界制約のないレジスタはスキップ
             if points.is_empty() {
                 continue;
             }
@@ -102,9 +130,8 @@ impl Stark {
             let points: Vec<(FieldElement, FieldElement)> = boundary
                 .iter()
                 .filter(|(_, r, _)| *r == s)
-                .map(|(c, _, v)| (self.omicron.pow(*c as u128), *v))
+                .map(|(c, _, v)| (self.trace_point_at(*c), *v))
                 .collect();
-            // 境界制約のないレジスタはスキップ
             if points.is_empty() {
                 continue;
             }
@@ -115,11 +142,11 @@ impl Stark {
     }
 
     // 境界制約に基づいて境界商多項式の次数を計算 
-    pub fn boundary_quotient_degree_bounds(&self, randomized_trace_length: usize, boundary: &Vec<(usize, usize, FieldElement)>) -> Vec<usize> {
-        let randomized_trace_degree = randomized_trace_length - 1;
+    pub fn boundary_quotient_degree_bounds(&self, trace_length: usize, boundary: &Vec<(usize, usize, FieldElement)>) -> Vec<usize> {
+        let trace_degree = trace_length - 1;
         self.boundary_zerofiers(boundary)
             .iter()
-            .map(|bz| randomized_trace_degree - bz.degree() as usize)
+            .map(|bz| trace_degree - bz.degree() as usize)
             .collect()
     }
 
@@ -151,48 +178,51 @@ impl Stark {
     }
     
     pub fn prove(&self, trace: &mut Vec<Vec<FieldElement>>, transition_constraints: &Vec<MPolynomial>, boundary: &Vec<(usize, usize, FieldElement)>, proof_stream: &mut ProofStream) -> Vec<u8> {
-        // トレースにランダム行を追加
-        for _ in 0..self.num_randomizers {
-            let row: Vec<FieldElement> = (0..self.num_registers)
-                .map(|_| {
-                    let mut bytes = [0u8; 17];
-                    rand::thread_rng().fill_bytes(&mut bytes);
-                    self.field.sample(bytes.to_vec())
-                })
-                .collect();
-            trace.push(row);
-        }
 
         // 生成元からトレースドメインを生成
-        let trace_domain: Vec<FieldElement> = (0..trace.len())
-            .map(|i| self.omicron.pow(i as u128))
-            .collect();
+        println!("Generating trace domain...");
+        assert_eq!(
+            trace.len(),
+            self.original_trace_length,
+            "trace length must equal original_trace_length"
+        );
+        let trace_domain = self.trace_domain_prefix(trace.len());
+        println!("Trace domain length: {}", trace_domain.len());
 
         // トレース多項式を生成
+        println!("Generating trace polynomials...");
         let trace_polynomials: Vec<Polynomial> = (0..self.num_registers)
             .map(|s| {
                 // 各レジスタのトレースを抽出
                 let single_trace: Vec<FieldElement> = trace.iter().map(|row| row[s]).collect();
-                Polynomial::interpolate_domain(&trace_domain, &single_trace)
+                Polynomial::interpolate_domain_fft(&trace_domain, &single_trace)
             })
             .collect();
 
         // 境界制約
         // P(x) 境界制約の多項式
+        print!("Generating boundary quotient polynomials...");
         let boundary_interpolants = self.boundary_interpolants(boundary);
         // Z(x) 分母
         let boundary_zerofiers = self.boundary_zerofiers(boundary);
         // Q(x) 評価値
-        let constrained_registers: HashSet<usize> = boundary.iter().map(|&(_, r, _)| r).collect();
+        let mut constrained_list: Vec<usize> = boundary.iter().map(|&(_, r, _)| r).collect();
+        constrained_list.sort_unstable();
+        constrained_list.dedup();
+        let register_to_index: HashMap<usize, usize> = constrained_list
+            .iter()
+            .enumerate()
+            .map(|(idx, reg)| (*reg, idx))
+            .collect();
         let boundary_quotients: Vec<Polynomial> = (0..self.num_registers)
-        .map(|s| {
-            if constrained_registers.contains(&s) {
-                &(&trace_polynomials[s] - &boundary_interpolants[s]) / &boundary_zerofiers[s]
-            } else {
-                Polynomial::new(vec![])  // ゼロ多項式などの無害な代替
-            }
-        })
-        .collect();
+            .map(|s| {
+                if let Some(&idx) = register_to_index.get(&s) {
+                    &(&trace_polynomials[s] - &boundary_interpolants[idx]) / &boundary_zerofiers[idx]
+                } else {
+                    Polynomial::new(vec![])  // ゼロ多項式などの無害な代替
+                }
+            })
+            .collect();
 
         let fri_domain = self.fri.eval_domain();
         let fri_domain: &[FieldElement] = &fri_domain; // 型合わせ
@@ -210,12 +240,48 @@ impl Stark {
         }
 
         // x
-        let mut point: Vec<Polynomial> = vec![Polynomial::new(vec![self.field.zero(), self.field.one()])];
+        let mut point: Vec<Polynomial> = vec![];
         // 現在のステップ f_i(x)
         point.extend(trace_polynomials.clone());
         // 次のステップ f_{i}(wx)
-        point.extend(trace_polynomials.iter().map(|tp| tp.scale(&self.omicron)));
+        point.extend(trace_polynomials.iter().map(|tp| tp.scale(&self.trace_omicron)));
 
+        // 本来はここではない
+        // 周期多項式
+        let m_h_base = vec![0, 0, 0, 0, 0, 0, 0, 1];
+        let m_h_length = self.omicron_domain.len() / 8;
+        let m_h: Vec<FieldElement> = m_h_base
+        .iter()
+        .cycle()
+        .take(m_h_length)
+        .map(|&b| FieldElement::new(b as u128, self.field))
+        .collect();
+        let m_h_poly = Polynomial::interpolate_domain_fft(&self.omicron_domain, &m_h);
+        // m_p
+        let m_p_base = vec![1, 1, 1, 1, 1, 1, 1, 1];
+        let m_p_length = self.omicron_domain.len() / 8;
+        let m_p: Vec<FieldElement> = (0..m_p_length)
+        .flat_map(|block_index| {
+        let weight = 1 << block_index; // 2^block_index
+        m_p_base.iter().map(move |_| FieldElement::new(weight, self.field))
+        })
+        .collect();
+        let m_p_poly = Polynomial::interpolate_domain_fft(&self.omicron_domain, &m_p);
+        // m_s
+        let mut m_s_base =  vec![Field::zero(self.field); 1024];
+        m_s_base[1023] = Field::one(self.field);
+        let m_s_length = self.omicron_domain.len() / 1024;
+        let m_s: Vec<FieldElement> = m_s_base
+            .iter()
+            .cycle()
+            .take(m_s_length)
+            .map(|&b| FieldElement::new(b.value, self.field))
+            .collect();
+        let m_s_poly = Polynomial::interpolate_domain_fft(&self.omicron_domain, &m_s);
+
+        point.extend([m_h_poly.clone(), m_p_poly.clone(), m_s_poly.clone()]);
+
+        println!("Generating transition quotient polynomials...");
         // P(x)
         let transition_polynomials: Vec<Polynomial> = transition_constraints
             .iter()
@@ -262,8 +328,13 @@ impl Stark {
             terms.push(&x.clone().pow(shift as u128) * tq);
         }
         // 境界制約の商多項式
-        for (i, bq) in boundary_quotients.iter().enumerate() {
-            let shift = max_deg - self.boundary_quotient_degree_bounds(trace.len(), boundary)[i];
+        let bqdbs_prove = self.boundary_quotient_degree_bounds(trace.len(), boundary);
+        for (s, bq) in boundary_quotients.iter().enumerate() {
+            let shift = if let Some(&idx) = register_to_index.get(&s) {
+                max_deg - bqdbs_prove[idx]
+            } else {
+                0  // 制約なしレジスタはゼロ多項式なので shift 値は結果に影響しない
+            };
             terms.push(bq.clone());
             terms.push(&x.clone().pow(shift as u128) * bq);
         }
@@ -358,6 +429,20 @@ impl Stark {
             randomizer.insert(i, value);
         }
 
+        // prove と対称な register_to_index マップを構築し、制約のないレジスタの OOB アクセスを防ぐ
+        let mut constrained_list_v: Vec<usize> = boundary.iter().map(|&(_, r, _)| r).collect();
+        constrained_list_v.sort_unstable();
+        constrained_list_v.dedup();
+        let register_to_index: HashMap<usize, usize> = constrained_list_v
+            .iter()
+            .enumerate()
+            .map(|(idx, reg)| (*reg, idx))
+            .collect();
+        let boundary_zerofiers = self.boundary_zerofiers(boundary);
+        let boundary_interpolants = self.boundary_interpolants(boundary);
+        let bqdbs_verify = self.boundary_quotient_degree_bounds(randomized_trace_length, boundary);
+        let max_deg_v = self.max_degree(transition_constraints);
+
         // 各インデックスで「線形結合値」と「FRI値」を照合
         for (i_idx, &i) in indices.iter().enumerate() {
             let domain_current_index = &self.generator * &self.omega.pow(i);
@@ -367,15 +452,15 @@ impl Stark {
             let mut current_trace = vec![self.field.zero(); self.num_registers];
             let mut next_trace = vec![self.field.zero(); self.num_registers];
 
-            let boundary_zerofiers = self.boundary_zerofiers(boundary);
-            let boundary_interpolants = self.boundary_interpolants(boundary);
-
             for s in 0..self.num_registers {
-                let zerofier = &boundary_zerofiers[s];
-                let interpolant = &boundary_interpolants[s];
-                // トレースの復元
-                current_trace[s] = &(&leafs[s][&i] * &zerofier.evaluate(&domain_current_index)) + &interpolant.evaluate(&domain_current_index);
-                next_trace[s] = &(&leafs[s][&next_index] * &zerofier.evaluate(&domain_next_index)) + &interpolant.evaluate(&domain_next_index);
+                if let Some(&idx) = register_to_index.get(&s) {
+                    let zerofier = &boundary_zerofiers[idx];
+                    let interpolant = &boundary_interpolants[idx];
+                    // トレースの復元
+                    current_trace[s] = &(&leafs[s][&i] * &zerofier.evaluate(&domain_current_index)) + &interpolant.evaluate(&domain_current_index);
+                    next_trace[s] = &(&leafs[s][&next_index] * &zerofier.evaluate(&domain_next_index)) + &interpolant.evaluate(&domain_next_index);
+                }
+                // 制約なしレジスタは leafs の値が 0 (ゼロ多項式) なので current/next_trace はゼロのまま
             }
 
             // 遷移制約の評価
@@ -388,13 +473,17 @@ impl Stark {
             let mut terms = vec![randomizer[&i]];
             for (s, tcv) in transition_values.iter().enumerate() {
                 let quotient = tcv / &self.transition_zerofier().evaluate(&domain_current_index);
-                let shift = self.max_degree(transition_constraints) - self.transition_quotient_degree_bounds(transition_constraints)[s];
+                let shift = max_deg_v - self.transition_quotient_degree_bounds(transition_constraints)[s];
                 terms.push(quotient);
                 terms.push(&quotient * &domain_current_index.pow(shift as u128));
             }
             for s in 0..self.num_registers {
                 let bqv = leafs[s][&i];
-                let shift = self.max_degree(transition_constraints) - self.boundary_quotient_degree_bounds(randomized_trace_length, boundary)[s];
+                let shift = if let Some(&idx) = register_to_index.get(&s) {
+                    max_deg_v - bqdbs_verify[idx]
+                } else {
+                    0  // 制約なしレジスタは bqv=0 なので shift 値は結果に影響しない
+                };
                 terms.push(bqv);
                 terms.push(&bqv * &domain_current_index.pow(shift as u128));
             }
@@ -428,11 +517,61 @@ mod tests {
             1024,  // num_cycles (original_trace_length)
             6      // transition_constraints_degree
         );
-        print!("{:?}", stark.omicron);
+        
         let boundary = vec![(0, 0, FieldElement::new(1, field)), (1023, 1, FieldElement::new(2, field))];
         let zerofiers = stark.boundary_zerofiers(&boundary);
         assert_eq!(zerofiers.len(), boundary.len());
     }
+    // BUG-3: verify の boundary_zerofiers[s] が境界外アクセスしてパニックするバグの再現テスト。
+    // 2 レジスタのうちレジスタ 0 のみに境界制約を持つ STARK で prove → verify を実行する。
+    // レジスタ 1 は制約なしのため boundary_zerofiers.len()==1 だが verify ループで s=1 でアクセスしパニック。
+    // catch_unwind でパニックを検出し、パニックしないことを assert するので:
+    //   - バグあり: verify がパニック → catch_unwind が Err → assert 失敗 → テスト FAILED
+    //   - バグ修正後: verify がパニックしない → catch_unwind が Ok → assert 成功 → テスト PASSED
+    #[test]
+    fn test_bug3_verify_does_not_panic_with_unconstrained_registers() {
+        use std::panic;
+
+        let field = Field::new(340282366920938463463374557953744961537);
+        // 2 registers: register 0 は境界制約あり、register 1 は境界制約なし
+        // num_cycles=4, expansion_factor=256: fri_domain_length=1024 (FRI 2 ラウンド成立)
+        // 境界制約を trace_degree=3 点ぶん設定 → zerofier 次数3 = trace_degree → quotient 次数 0
+        // 遷移制約なし → max_degree=0, shift=0-0=0 でオーバーフローしない
+        let stark = Stark::new(
+            field,
+            256, // expansion_factor (fri_domain_length=4*256=1024 で FRI が成立)
+            1,   // num_colinearity_checks
+            2,   // security_level
+            2,   // num_registers
+            4,   // num_cycles
+            1,   // transition_constraints_degree
+        );
+
+        // register 0 に trace_degree(=3) 点の境界制約 → boundary quotient 次数 = 0
+        // register 1 は一切制約なし
+        let boundary = vec![
+            (0usize, 0usize, FieldElement::new(1, field)),
+            (1usize, 0usize, FieldElement::new(1, field)),
+            (2usize, 0usize, FieldElement::new(1, field)),
+        ];
+
+        // 境界を満たす単純なトレース (register0=1, register1=2 で固定)
+        let mut trace: Vec<Vec<FieldElement>> = (0..4)
+            .map(|_| vec![FieldElement::new(1, field), FieldElement::new(2, field)])
+            .collect();
+
+        let transition_constraints: Vec<MPolynomial> = vec![];
+        let mut proof_stream = ProofStream::new();
+        let proof_bytes = stark.prove(&mut trace, &transition_constraints, &boundary, &mut proof_stream);
+
+        // verify は register 1 が unconstrained なのに boundary_zerofiers[1] にアクセスしてパニックする
+        let mut verifier_stream = ProofStream::deserialize(&proof_bytes);
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+            stark.verify(&transition_constraints, &boundary, &mut verifier_stream)
+        }));
+        assert!(result.is_ok(), "verify はパニックしてはいけない。境界外アクセスのバグが残っている可能性あり");
+    }
+
     #[test]
     fn test_boundary_interpolants() {
         let field = Field::new(340282366920938463463374557953744961537); 
