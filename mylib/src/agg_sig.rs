@@ -99,9 +99,11 @@ impl AggSig {
             let (m0, m1) = split_and_parse_bits(&message_bits).unwrap();
             let step = signer_index as usize * 1024;
 
-            /*  
-                Values in all registers except for 𝑟2, 𝑟3, 𝑟4, 𝑟5, 𝑟10, 𝑟11 must
-                be equal to zeros at the first step of the computation (𝑠0).
+            /*
+                r2,r3,r4,r5,r10,r11 はハッシュ入力値なので初期値が非ゼロのため除外。
+                r16-r19 は update_with_trace.trace[0] に左右の公開鍵ハッシュ値が入るため
+                ゼロではない（PUB_ACC_RANGE の最初 4 要素 = acc_input）。これも除外する。
+                r20, r21 = capacity_state の初期値はゼロ。
             */
             constraints.push((step, 0, zero));
             constraints.push((step, 1, zero));
@@ -113,23 +115,40 @@ impl AggSig {
             constraints.push((step, 13, zero));
             constraints.push((step, 14, zero));
             constraints.push((step, 15, zero));
-            constraints.push((step, 16, zero));
-            constraints.push((step, 17, zero));
-            constraints.push((step, 18, zero));
-            constraints.push((step, 19, zero));
             constraints.push((step, 20, zero));
             constraints.push((step, 21, zero));
 
             /*
-                Values in registers𝑟0 and 𝑟1 must be equal to message values
-                𝑚0 and 𝑚1 at step 𝑠1023 (the last step of the computation).
+                At the last step (offset), the trace stores m0_acc BEFORE the final bit
+                update (loop iteration i=half-1 contributes bits[0] * 2^127 to m0, but
+                this update is applied AFTER step_trace[7] is written).
+                So trace[offset][0] = m0 - bits[0] * 2^127, and trace[offset][2] = bits[0].
+                Together they fully verify that the accumulated message equals m0.
             */
-            constraints.push((offset, 0, FieldElement::new(m0, self.field)));
-            constraints.push((offset, 1, FieldElement::new(m1, self.field)));
+            let bits_chars: Vec<char> = message_bits.chars().collect();
+            let n = bits_chars.len(); // 256
+            let half = n / 2; // 128
+            let last_bit0 = bits_chars[0]; // MSB of first half, the last bit processed
+            let last_bit1 = bits_chars[half]; // MSB of second half
+            let two_pow_127 = FieldElement::new(1u128 << 127, self.field);
+            let m0_at_offset = if last_bit0 == '1' {
+                &FieldElement::new(m0, self.field) - &two_pow_127
+            } else {
+                FieldElement::new(m0, self.field)
+            };
+            let m1_at_offset = if last_bit1 == '1' {
+                &FieldElement::new(m1, self.field) - &two_pow_127
+            } else {
+                FieldElement::new(m1, self.field)
+            };
+            constraints.push((offset, 0, m0_at_offset));
+            constraints.push((offset, 1, m1_at_offset));
+            constraints.push((offset, 2, FieldElement::new(if last_bit0 == '1' { 1 } else { 0 }, self.field)));
+            constraints.push((offset, 3, FieldElement::new(if last_bit1 == '1' { 1 } else { 0 }, self.field)));
 
             /*
             Values in 𝑟16 and 𝑟17 at step 𝑠1023 must be equal to the values
-            of the public key 𝑝𝑢𝑏 which was used to sign the message 
+            of the public key 𝑝𝑢𝑏 which was used to sign the message
             */
             constraints.push((offset, 16, self.pub_accs[signer_index][0]));
             constraints.push((offset, 17, self.pub_accs[signer_index][1]));

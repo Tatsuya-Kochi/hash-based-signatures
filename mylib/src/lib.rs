@@ -8,10 +8,10 @@ pub mod lamport_plus; // Lamport+モジュール
 pub mod fri;    // FRIモジュール
 pub mod stark;  // STARKモジュール
 pub mod agg_sig; // 集約署名モジュール
-pub mod threshold_sig; // 閾値署名モジュール
-pub mod arion_hash; // Arionハッシュモジュール
+//pub mod threshold_sig; // 閾値署名モジュール
 
 // テスト対象外
 /*
 
+pub mod arion_hash; // Arionハッシュモジュール
 */

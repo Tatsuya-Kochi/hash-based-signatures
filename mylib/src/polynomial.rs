@@ -23,7 +23,7 @@ impl Polynomial {
             coeffs.pop();
         }
         coeffs
-}
+    }
     // 係数ベクトルの長さを取得
     pub fn degree(&self) -> isize {
         if self.coefficients.is_empty() {
@@ -106,6 +106,21 @@ impl Polynomial {
         Polynomial { coefficients: buf }
     }
 
+    pub fn derivative(&self) -> Polynomial {
+        if self.coefficients.len() <= 1 {
+            return Polynomial::new(vec![]);
+        }
+
+        let field = self.coefficients[0].field;
+        let mut coeffs = Vec::with_capacity(self.coefficients.len() - 1);
+        for (degree, coeff) in self.coefficients.iter().enumerate().skip(1) {
+            let scalar = FieldElement::new(degree as u128, field);
+            coeffs.push(coeff * &scalar);
+        }
+
+        Polynomial::new(coeffs)
+    }
+
     pub fn neg(&self) -> Polynomial {
         Polynomial::new(self.coefficients.iter().map(|c| -c).collect())
     }
@@ -163,37 +178,205 @@ impl Polynomial {
         for x in domain {
             assert!(seen.insert(x.value), "Duplicate x in domain: {}", x.value);
         }
-    
+
+        if let Some((offset, omega)) = Polynomial::fft_domain_params(domain) {
+            return Polynomial::interpolate_domain_fft_with_params(domain, values, offset, omega);
+        }
+
+        Polynomial::interpolate_domain_barycentric(domain, values)
+    }
+
+    fn interpolate_domain_barycentric(domain: &[FieldElement], values: &[FieldElement]) -> Polynomial {
+        if domain.len() == 1 {
+            return Polynomial::new(vec![values[0]]);
+        }
+
         let field = domain[0].field;
-        let mut result = Polynomial::new(vec![field.zero()]);
-    
+        let one_poly = Polynomial::new(vec![field.one()]);
+
+        let mut prefix = Vec::with_capacity(domain.len() + 1);
+        prefix.push(one_poly.clone());
+        for &xi in domain {
+            let term = Polynomial::new(vec![xi.neg(), field.one()]);
+            let next = prefix.last().unwrap() * &term;
+            prefix.push(next);
+        }
+
+        let mut suffix = Vec::with_capacity(domain.len() + 1);
+        suffix.push(one_poly.clone());
+        for &xi in domain.iter().rev() {
+            let term = Polynomial::new(vec![xi.neg(), field.one()]);
+            let next = suffix.last().unwrap() * &term;
+            suffix.push(next);
+        }
+        suffix.reverse();
+
+        let zerofier = prefix.last().unwrap().clone();
+        let zerofier_derivative = zerofier.derivative();
+
+        let mut result = Polynomial::new(vec![]);
         for (i, &xi) in domain.iter().enumerate() {
-            let mut numerator = Polynomial::new(vec![field.one()]);
-            let mut denominator = field.one();
-    
-            for (j, &xj) in domain.iter().enumerate() {
-                if i == j {
-                    continue;
-                }
-    
-                // (x - xj)
-                let term = Polynomial::new(vec![xj.neg(), field.one()]);
-                numerator = &numerator * &term;
-    
-                // (xi - xj)
-                denominator = &denominator * &(&xi - &xj);
-            }
-    
-            // li(x) = Π(x - xj) / (xi - xj)
-            let li = numerator.scalar(&(denominator.inverse()));
-    
-            // add li(x) * yi
-            let term = li.scalar(&values[i]);
+            let basis = &prefix[i] * &suffix[i + 1];
+            let denominator = zerofier_derivative.evaluate(&xi);
+            let scale = &values[i] * &denominator.inverse();
+            let term = basis.scalar(&scale);
             result = &result + &term;
         }
+
         result
     }
-    
+
+    pub fn interpolate_domain_fft(
+        domain: &[FieldElement],
+        values: &[FieldElement],
+    ) -> Polynomial {
+        let (offset, omega) = Polynomial::fft_domain_params(domain)
+            .expect("FFT interpolation requires a power-of-two geometric domain");
+        Polynomial::interpolate_domain_fft_with_params(domain, values, offset, omega)
+    }
+
+    fn interpolate_domain_fft_with_params(
+        domain: &[FieldElement],
+        values: &[FieldElement],
+        offset: FieldElement,
+        omega: FieldElement,
+    ) -> Polynomial {
+        if domain.len() == 1 {
+            return Polynomial::new(vec![values[0]]);
+        }
+
+        let mut coeffs = values.to_vec();
+        Polynomial::inverse_fft_in_place(&mut coeffs, omega);
+
+        let field = offset.field;
+        let offset_inv = offset.inverse();
+        let mut offset_power_inv = field.one();
+        for coeff in coeffs.iter_mut() {
+            let scaled = (&*coeff) * &offset_power_inv;
+            *coeff = scaled.clone();
+            offset_power_inv = &offset_power_inv * &offset_inv;
+        }
+
+        Polynomial::new(coeffs)
+    }
+
+    // O(N log N) FFT-based evaluation over a coset domain {offset, offset*omega, ...}
+    pub fn evaluate_domain_fft(domain: &[FieldElement], poly: &Polynomial) -> Vec<FieldElement> {
+        let (offset, omega) = Polynomial::fft_domain_params(domain)
+            .expect("evaluate_domain_fft requires a power-of-two geometric domain");
+        let n = domain.len();
+        let field = offset.field;
+        let mut vals: Vec<FieldElement> = poly.coefficients.clone();
+        vals.resize(n, field.zero());
+        // scale coefficients by offset^i so that FFT gives evaluations at coset
+        let mut g_pow = field.one();
+        for v in vals.iter_mut() {
+            *v = &*v * &g_pow;
+            g_pow = &g_pow * &offset;
+        }
+        Polynomial::fft_in_place(&mut vals, omega);
+        vals
+    }
+
+    fn fft_domain_params(domain: &[FieldElement]) -> Option<(FieldElement, FieldElement)> {
+        if domain.is_empty() {
+            return None;
+        }
+        let n = domain.len();
+        if n == 1 {
+            return Some((domain[0], domain[0].field.one()));
+        }
+        if !n.is_power_of_two() {
+            return None;
+        }
+
+        let offset = domain[0];
+        if offset.is_zero() {
+            return None;
+        }
+
+        let omega = &domain[1] / &offset;
+        if omega.is_zero() {
+            return None;
+        }
+
+        let mut expected = offset;
+        for &x in domain {
+            if x != expected {
+                return None;
+            }
+            expected = &expected * &omega;
+        }
+
+        if omega.pow(n as u128) != domain[0].field.one() {
+            return None;
+        }
+
+        Some((offset, omega))
+    }
+
+    fn fft_in_place(values: &mut [FieldElement], root: FieldElement) {
+        if values.is_empty() {
+            return;
+        }
+
+        Polynomial::bit_reverse(values);
+        let n = values.len();
+        let field = values[0].field;
+        let mut len = 2;
+        while len <= n {
+            let step = root.pow((n / len) as u128);
+            for i in (0..n).step_by(len) {
+                let mut w = field.one();
+                for j in 0..len / 2 {
+                    let u = values[i + j];
+                    let v = &values[i + j + len / 2] * &w;
+                    values[i + j] = &u + &v;
+                    values[i + j + len / 2] = &u - &v;
+                    w = &w * &step;
+                }
+            }
+            len <<= 1;
+        }
+    }
+
+    fn inverse_fft_in_place(values: &mut [FieldElement], root: FieldElement) {
+        if values.is_empty() {
+            return;
+        }
+
+        let root_inv = root.inverse();
+        Polynomial::fft_in_place(values, root_inv);
+        let n_inv = FieldElement::new(values.len() as u128, values[0].field).inverse();
+        for value in values.iter_mut() {
+            let scaled = (&*value) * &n_inv;
+            *value = scaled;
+        }
+    }
+
+    fn bit_reverse(values: &mut [FieldElement]) {
+        let n = values.len();
+        let mut j = 0;
+        for i in 1..n {
+            let mut bit = n >> 1;
+            while j & bit != 0 {
+                j ^= bit;
+                bit >>= 1;
+            }
+            j ^= bit;
+            if i < j {
+                values.swap(i, j);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn interpolate_domain_barycentric_for_benchmark(
+        domain: &[FieldElement],
+        values: &[FieldElement],
+    ) -> Polynomial {
+        Polynomial::interpolate_domain_barycentric(domain, values)
+    }
 
     pub fn zerofier_domain(domain: &[FieldElement]) -> Polynomial {
         assert!(!domain.is_empty());
@@ -599,5 +782,91 @@ mod tests {
         assert_eq!(poly.evaluate(&x0), y0);
         assert_eq!(poly.evaluate(&x1), y1); // 1を加えると値が変わる
         assert_eq!(poly.evaluate(&x2), y2);
+    }
+
+    #[test]
+    fn test_interpolate_domain_fft() {
+        let p = 340282366920938463463374557953744961537;
+        let field = Field { p };
+
+        let offset = field.generator();
+        let n = 8u128;
+        let omega = field.primitive_nth_root(n);
+        let domain: Vec<FieldElement> = (0..n)
+            .map(|i| &offset * &omega.pow(i))
+            .collect();
+
+        let coeffs = vec![
+            FieldElement::new(7, field),
+            FieldElement::new(0, field),
+            FieldElement::new(3, field),
+            FieldElement::new(5, field),
+        ];
+        let poly = Polynomial::new(coeffs.clone());
+        let values: Vec<FieldElement> = domain
+            .iter()
+            .map(|x| poly.evaluate(x))
+            .collect();
+
+        let recovered_fft = Polynomial::interpolate_domain_fft(&domain, &values);
+        let recovered_generic = Polynomial::interpolate_domain(&domain, &values);
+
+        assert_eq!(recovered_fft, Polynomial::new(coeffs.clone()));
+        assert_eq!(recovered_generic, Polynomial::new(coeffs));
+        assert_eq!(recovered_fft, recovered_generic);
+    }
+
+    #[test]
+    fn test_interpolation_speed_comparison() {
+        use std::time::Instant;
+
+        let p = 340282366920938463463374557953744961537;
+        let field = Field { p };
+
+        let n = 128usize;
+        let offset = field.generator();
+        let omega = field.primitive_nth_root(n as u128);
+        let domain: Vec<FieldElement> = (0..n as u128)
+            .map(|i| &offset * &omega.pow(i))
+            .collect();
+
+        let coeffs: Vec<FieldElement> = (0..64)
+            .map(|i| FieldElement::new((17 * i + 3) as u128, field))
+            .collect();
+        let poly = Polynomial::new(coeffs);
+        let values: Vec<FieldElement> = domain
+            .iter()
+            .map(|x| poly.evaluate(x))
+            .collect();
+
+        // Cache warm-up to avoid measuring one-time costs like allocation or exponentiation tables.
+        let warm_bary = Polynomial::interpolate_domain_barycentric_for_benchmark(&domain, &values);
+        let warm_fft = Polynomial::interpolate_domain_fft(&domain, &values);
+        assert_eq!(warm_fft, warm_bary);
+
+        let start_bary = Instant::now();
+        let barycentric = Polynomial::interpolate_domain_barycentric_for_benchmark(&domain, &values);
+        let barycentric_duration = start_bary.elapsed();
+
+        let start_fft = Instant::now();
+        let fft = Polynomial::interpolate_domain_fft(&domain, &values);
+        let fft_duration = start_fft.elapsed();
+
+        let bary_us = barycentric_duration.as_micros();
+        let fft_us = fft_duration.as_micros();
+        println!(
+            "interpolation timing: barycentric={}µs, fft={}µs, ratio={:.2}x",
+            bary_us,
+            fft_us,
+            barycentric_duration.as_secs_f64() / fft_duration.as_secs_f64()
+        );
+
+        assert_eq!(fft, barycentric);
+        assert!(
+            fft_duration < barycentric_duration,
+            "FFT interpolation took {:?} while barycentric took {:?}",
+            fft_duration,
+            barycentric_duration
+        );
     }
 }

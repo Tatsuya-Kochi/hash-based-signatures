@@ -591,7 +591,7 @@ mod tests {
         mono1.insert(0, 2);
         dict1.insert(mono1, FieldElement::new(5, field));
         let mpoly = MPolynomial::new(dict1);
-        assert_eq!(mpoly, MPolynomial::new({
+        assert_eq!(mpoly.pow(2), MPolynomial::new({
             let mut dict2 = HashMap::new();
             let mut mono2 = BTreeMap::new();
             mono2.insert(0, 4);

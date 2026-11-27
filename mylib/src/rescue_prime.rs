@@ -1,5 +1,7 @@
+use core::num;
 use std::vec;
 use crate::modulus;
+use blake3::Hash;
 use modulus::{Field, FieldElement};
 use crate::mpolynomial::MPolynomial;
 use std::collections::{BTreeMap, HashMap};
@@ -344,54 +346,44 @@ impl RescuePrime {
         (trace, [result[0], result[1]])
     }
 
-    // Rescue AIRの計算 Σmj M[i,j](S[j]^α + C2im[j]^α) - (Σ Minv[i,j](S[j] + C2im[m+j]))^α
+    // Rescue AIRの計算 Σmj M[i,j](S[j]^α + C2im[j]^α) - (Σ Minv[i,j](S[j]' + C2im[m+j]))^α
     pub fn rescue_air_round(
         &self,
-        index: usize, // どこのレジスタを指すか
-        step: usize,  // どのステップのAIRを計算するか
+        index: usize, // 10:署名の右側のレジスタのインデックス
     ) -> MPolynomial {
-        let mut rescue_air: MPolynomial = MPolynomial::new(HashMap::new());
-        let mut sum_const = MPolynomial::new(HashMap::new());
-        for i in 0..self.m {
-            let mut dict = HashMap::new();
-            let mut mono = BTreeMap::new();
-            mono.insert(index+i, self.alpha as usize);
+        let mut rescue_air1: MPolynomial = MPolynomial::new(HashMap::new());
+        let mut rescue_air2: MPolynomial = MPolynomial::new(HashMap::new());
+        for j in 0..self.m {
+            let mut dict1 = HashMap::new();
+            let mut mono1 = BTreeMap::new();
+            // S[j]^α
+            mono1.insert(index+j, self.alpha as usize);
             // S[j]^α * M[i, j]の計算
-            dict.insert(mono, self.mds[step][index]);
-
-            rescue_air = &rescue_air + &MPolynomial::new(dict);
-
-            // 定数の計算
-            let mut dict: HashMap<BTreeMap<usize, usize>, FieldElement> = HashMap::new();
+            dict1.insert(mono1, self.mds[0][j]);
             // M[i, j] * C2im[j]^αの計算
-            let temp = &self.mds[step][i] * &self.round_constants[2 * index * self.m + i].pow(self.alpha as u128);
-            dict.insert(BTreeMap::new(), temp);
-            rescue_air = &rescue_air + &MPolynomial::new(dict);
+            let temp1 = &self.mds[0][j] * &self.round_constants[0].pow(self.alpha as u128);
+            dict1.insert(BTreeMap::new(), temp1);
+            // M[i, j](S[j]^α + C2im[j]^α)の計算
+            rescue_air1 = &rescue_air1 + &MPolynomial::new(dict1);
+            
+            let num_registers = 22; // レジスタの数
+            let mut dict2 = HashMap::new();
+            let mut mono2 = BTreeMap::new();
+            // S[j]'
+            mono2.insert(index+j+num_registers, 1);
+            // S[j]' * Minv[i, j]の計算
+            dict2.insert(mono2, self.mdsinv[0][j]);
+            // Minv[i, j] * C2im[m+j]の計算
+            let temp2 = &self.mdsinv[0][j] * &self.round_constants[0];
+            dict2.insert(BTreeMap::new(), temp2);
+            // Minv[i,j](S[j]' - C2im[m+j])の計算
+            rescue_air2 = &rescue_air2 - &MPolynomial::new(dict2);
         }
-
-        // 次ステップの状態を計算
-        let num_registers = 22;
-        let mut sum_mpolynomial = MPolynomial::new(HashMap::new());
-        for i in 0..self.m {
-            let mut dict = HashMap::new();
-            let mut mono = BTreeMap::new();
-            mono.insert(index+i+num_registers, 1);
-            // Minv[i, j] * (S[j]' - C2im[m+j])の計算
-            dict.insert(mono, self.mdsinv[step][index]);
-            sum_mpolynomial = &sum_mpolynomial + &MPolynomial::new(dict);
-
-            // 定数の計算
-            let mut dict: HashMap<BTreeMap<usize, usize>, FieldElement> = HashMap::new();
-            // Minv[i, j] * -C2im[m+j]の計算
-            dict.insert(BTreeMap::new(), (&self.mdsinv[step][index] * &self.round_constants[2 * index * self.m + self.m + i]).negate());
-            sum_mpolynomial = &sum_mpolynomial + &MPolynomial::new(dict);
-        }
-        // -()^α
-        sum_mpolynomial = (&sum_mpolynomial.pow(self.alphainv)).negate();
-        rescue_air = &rescue_air + &sum_mpolynomial;
+        rescue_air2 = rescue_air2.pow(self.alpha as u128); // Minv[i,j](S[j]' + C2im[m+j])^αの計算
+        // Rescue AIRの計算 Σmj M[i,j](S[j]^α + C2im[j]^α) - (Σ Minv[i,j](S[j]' + C2im[m+j]))^α
+        let rescue_air = &rescue_air1 - &rescue_air2;
         rescue_air
-    }
-    
+}
 }
 
 #[cfg(test)]
@@ -490,5 +482,32 @@ mod tests {
         // capacity_stateの更新が正しいか確認
         assert_eq!(rescue.capacity_state[0], last_row[4]);
         assert_eq!(rescue.capacity_state[1], last_row[5]);
+    }
+    //#[test]
+    fn test_speed() {
+        println!("RescuePrimeのハッシュ計算速度テスト");
+        let rescue = RescuePrime::new();
+        let input = [
+            FieldElement { value: 1, field: rescue.field },
+            FieldElement { value: 2, field: rescue.field },
+            FieldElement { value: 3, field: rescue.field },
+            FieldElement { value: 4, field: rescue.field },
+        ];
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            rescue.hash(input);
+        }
+        let duration = start.elapsed();
+        println!("1000回のハッシュ計算にかかった時間: {:?}", duration);
+
+    }
+    #[test]
+    fn test_rescue_air_round() {
+        println!("RescuePrimeのAIR計算テスト");
+        let rescue = RescuePrime::new();
+        let index = 0; // レジスタのインデックス
+        let step = 0; // ステップのインデックス
+        let air = rescue.rescue_air_round(index);
+        // AIRの項が正しく計算されているか確認
     }
 }

@@ -15,7 +15,8 @@ pub struct Stark {
     pub security_level: usize,
     pub num_registers: usize,
     pub original_trace_length: usize,
-    pub num_randomizers: usize, 
+    pub num_randomizers: usize,
+    pub transition_constraints_degree: usize,
     pub generator: FieldElement,
     pub omega: FieldElement,
     pub omicron: FieldElement,
@@ -75,6 +76,7 @@ impl Stark {
             num_registers,
             original_trace_length,
             num_randomizers,
+            transition_constraints_degree,
             generator,
             omega,
             omicron,
@@ -172,9 +174,15 @@ impl Stark {
         (1 << (max.next_power_of_two().trailing_zeros())) - 1
     }
 
-    // 遷移制約（transition constraints）」の quotient 多項式の次数上限を返す
+    // 遷移制約 quotient 多項式の次数上限を返す
+    // 制約多項式の次数 d に対してトレース多項式 (次数 N-1) を代入すると次数 d*(N-1)、
+    // zerofier (次数 N-1) で割ると商の次数は (d-1)*(N-1)。
     fn transition_quotient_degree_bounds(&self, transition_constraints: &Vec<MPolynomial>) -> Vec<usize> {
-        transition_constraints.iter().map(|_| self.original_trace_length).collect()
+        let trace_degree = self.original_trace_length - 1;
+        let d = self.transition_constraints_degree;
+        transition_constraints.iter().map(|_| {
+            if d <= 1 { 0 } else { (d - 1) * trace_degree }
+        }).collect()
     }
     
     pub fn prove(&self, trace: &mut Vec<Vec<FieldElement>>, transition_constraints: &Vec<MPolynomial>, boundary: &Vec<(usize, usize, FieldElement)>, proof_stream: &mut ProofStream) -> Vec<u8> {
@@ -227,10 +235,10 @@ impl Stark {
         let fri_domain = self.fri.eval_domain();
         let fri_domain: &[FieldElement] = &fri_domain; // 型合わせ
             
-        // 各Q(x)をFRIドメインで評価
+        // 各Q(x)をFRIドメインで評価 (FFT版: O(N log N))
         let boundary_quotient_codewords: Vec<Vec<FieldElement>> = boundary_quotients
             .iter()
-            .map(|q| q.evaluate_domain(fri_domain))
+            .map(|q| Polynomial::evaluate_domain_fft(fri_domain, q))
             .collect();
 
         // Q(x)の評価値からMerkleルートを生成
@@ -246,39 +254,30 @@ impl Stark {
         // 次のステップ f_{i}(wx)
         point.extend(trace_polynomials.iter().map(|tp| tp.scale(&self.trace_omicron)));
 
-        // 本来はここではない
-        // 周期多項式
-        let m_h_base = vec![0, 0, 0, 0, 0, 0, 0, 1];
-        let m_h_length = self.omicron_domain.len() / 8;
-        let m_h: Vec<FieldElement> = m_h_base
-        .iter()
-        .cycle()
-        .take(m_h_length)
-        .map(|&b| FieldElement::new(b as u128, self.field))
-        .collect();
-        let m_h_poly = Polynomial::interpolate_domain_fft(&self.omicron_domain, &m_h);
-        // m_p
-        let m_p_base = vec![1, 1, 1, 1, 1, 1, 1, 1];
-        let m_p_length = self.omicron_domain.len() / 8;
-        let m_p: Vec<FieldElement> = (0..m_p_length)
-        .flat_map(|block_index| {
-        let weight = 1 << block_index; // 2^block_index
-        m_p_base.iter().map(move |_| FieldElement::new(weight, self.field))
-        })
-        .collect();
-        let m_p_poly = Polynomial::interpolate_domain_fft(&self.omicron_domain, &m_p);
-        // m_s
-        let mut m_s_base =  vec![Field::zero(self.field); 1024];
-        m_s_base[1023] = Field::one(self.field);
-        let m_s_length = self.omicron_domain.len() / 1024;
-        let m_s: Vec<FieldElement> = m_s_base
-            .iter()
-            .cycle()
-            .take(m_s_length)
-            .map(|&b| FieldElement::new(b.value, self.field))
+        // 周期多項式 — トレースドメイン (original_trace_length点) 上で補間することで
+        // 次数を omicron_domain 補間 (度8191) から trace_length-1 (度1023) に削減。
+        // AggSig 遷移制約の変数インデックス: m_h=45, m_p=46, m_s=47 に合わせ、
+        // point[44]=プレースホルダ(未使用), point[45]=m_h, [46]=m_p, [47]=m_s とする。
+        let trace_domain = self.trace_domain_prefix(self.original_trace_length);
+        let n = self.original_trace_length;
+        // m_h: 各8ステップ区間の最終行(step 7,15,...)で1、それ以外0
+        let m_h_vals: Vec<FieldElement> = (0..n)
+            .map(|i| if i % 8 == 7 { self.field.one() } else { self.field.zero() })
             .collect();
-        let m_s_poly = Polynomial::interpolate_domain_fft(&self.omicron_domain, &m_s);
+        let m_h_poly = Polynomial::interpolate_domain_fft(&trace_domain, &m_h_vals);
+        // m_p: 各8ステップ区間のインデックスkで2^k (フィールド演算でオーバーフロー回避)
+        let m_p_vals: Vec<FieldElement> = (0..n)
+            .map(|i| FieldElement::new(2, self.field).pow((i / 8) as u128))
+            .collect();
+        let m_p_poly = Polynomial::interpolate_domain_fft(&trace_domain, &m_p_vals);
+        // m_s: 最終ステップ(n-1)のみ1
+        let m_s_vals: Vec<FieldElement> = (0..n)
+            .map(|i| if i == n - 1 { self.field.one() } else { self.field.zero() })
+            .collect();
+        let m_s_poly = Polynomial::interpolate_domain_fft(&trace_domain, &m_s_vals);
 
+        // index 44 = プレースホルダ(AggSigはこの変数を使わない), 45=m_h, 46=m_p, 47=m_s
+        point.push(Polynomial::new(vec![]));
         point.extend([m_h_poly.clone(), m_p_poly.clone(), m_s_poly.clone()]);
 
         println!("Generating transition quotient polynomials...");
@@ -347,8 +346,8 @@ impl Stark {
             .reduce(|a, b| &a + &b)
             .unwrap_or_else(|| Polynomial::new(vec![]));
 
-        // Friドメイン上で評価して、FRI 証明を生成
-        let combined_codeword = combination.evaluate_domain(fri_domain);
+        // Friドメイン上で評価して、FRI 証明を生成 (FFT版: O(N log N))
+        let combined_codeword = Polynomial::evaluate_domain_fft(fri_domain, &combination);
         let indices = self.fri.prove(combined_codeword, proof_stream).unwrap(); // codewordsが返る
 
         // FRI用のインデックスを拡張 f(i) と f(i + expansion_factor)でFRIの折り畳みが成り立つか検証
@@ -445,6 +444,22 @@ impl Stark {
         let bqdbs_verify = self.boundary_quotient_degree_bounds(randomized_trace_length, boundary);
         let max_deg_v = self.max_degree(transition_constraints);
 
+        // prove と対称な周期多項式をトレースドメイン上で再構築 (verify 用)
+        let trace_domain_v = self.trace_domain_prefix(self.original_trace_length);
+        let n_v = self.original_trace_length;
+        let m_h_vals_v: Vec<FieldElement> = (0..n_v)
+            .map(|i| if i % 8 == 7 { self.field.one() } else { self.field.zero() })
+            .collect();
+        let m_h_poly_v = Polynomial::interpolate_domain_fft(&trace_domain_v, &m_h_vals_v);
+        let m_p_vals_v: Vec<FieldElement> = (0..n_v)
+            .map(|i| FieldElement::new(2, self.field).pow((i / 8) as u128))
+            .collect();
+        let m_p_poly_v = Polynomial::interpolate_domain_fft(&trace_domain_v, &m_p_vals_v);
+        let m_s_vals_v: Vec<FieldElement> = (0..n_v)
+            .map(|i| if i == n_v - 1 { self.field.one() } else { self.field.zero() })
+            .collect();
+        let m_s_poly_v = Polynomial::interpolate_domain_fft(&trace_domain_v, &m_s_vals_v);
+
         // 各インデックスで「線形結合値」と「FRI値」を照合
         for (i_idx, &i) in indices.iter().enumerate() {
             let domain_current_index = &self.generator * &self.omega.pow(i);
@@ -466,9 +481,14 @@ impl Stark {
             }
 
             // 遷移制約の評価
-            let mut point = vec![domain_current_index];
-            point.extend(current_trace.clone());
-            point.extend(next_trace);
+            // prove と変数インデックスを合わせる:
+            //   point[0..21]=current, [22..43]=next, [44]=unused, [45]=m_h, [46]=m_p, [47]=m_s
+            let mut point: Vec<FieldElement> = current_trace.clone();
+            point.extend(next_trace.clone());
+            point.push(self.field.zero()); // index 44: unused placeholder
+            point.push(m_h_poly_v.evaluate(&domain_current_index)); // index 45
+            point.push(m_p_poly_v.evaluate(&domain_current_index)); // index 46
+            point.push(m_s_poly_v.evaluate(&domain_current_index)); // index 47
 
             let transition_values: Vec<FieldElement> = transition_constraints.iter().map(|tc| tc.evaluate(&point)).collect();
 
