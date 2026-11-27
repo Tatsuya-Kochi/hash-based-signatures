@@ -274,7 +274,6 @@ impl LamportPlus {
             if bit1 == '1' {
                 m1_acc = &m1_acc + &two.pow(i as u128);
             }
-            print!("ステップ数: {}, トレース: {:?}, ", i, step_trace);
             // 署名の検証とトレースの更新
             let left_pb = match bit0 {
                 '1' => {
@@ -309,7 +308,7 @@ impl LamportPlus {
                     let input = [self.field.zero(); 4];
                     let (trace, _) = rp.hash_with_trace(input); // trace: Vec<[FieldElement; 6]>
                     for j in 0..Self::STEP_INTERVAL {
-                        step_trace[j][Self::LEFT_SIGNATURE_ACC_RANGE].copy_from_slice(&trace[j]);
+                        step_trace[j][Self::RIGHT_SIGNATURE_ACC_RANGE].copy_from_slice(&trace[j]);
                     }
                     [sig[i + half][0], sig[i + half][1]] // 署名のハッシュではなくそのまま使用
                 }
@@ -486,6 +485,32 @@ mod tests {
         let is_valid = lamport.verify(&mined_bits, &sig, &lamport.pub_acc);
         assert!(is_valid, "Signature should be valid");
     }
+    // BUG-1: right_pb の '0' ブランチが RIGHT_SIGNATURE_ACC_RANGE ではなく
+    // LEFT_SIGNATURE_ACC_RANGE にトレースを書き込んでいたバグの再現テスト。
+    // bit1='0' のステップで RIGHT range (registers 10..16) が非ゼロになるべき。
+    #[test]
+    fn test_bug1_right_pb_trace_range() {
+        let mut lamport = LamportPlus::new();
+        // bits[127]='1' → i=0 で bit0='1'
+        // bits[255]='0' → i=0 で bit1='0'  ← バグが発現する条件
+        let mut bits = vec!['0'; 256];
+        bits[127] = '1';
+        // bits[255] はデフォルト '0' のまま
+        let mined_bits: String = bits.into_iter().collect();
+
+        let (pr, _pb) = lamport.keygen(&mined_bits);
+        let sig = lamport.sign(&mined_bits, &pr);
+        let (is_valid, trace) = lamport.verify_with_trace_agg(&mined_bits, &sig, &lamport.pub_acc);
+        assert!(is_valid, "署名が有効であること");
+
+        // ステップ 0 (i=0) の RIGHT_SIGNATURE_ACC_RANGE = 10..16
+        // bit1='0' のとき hash(zeros) のトレースが書き込まれるはず → 非ゼロ
+        let right_non_zero = trace[0..LamportPlus::STEP_INTERVAL]
+            .iter()
+            .any(|row| row[10..16].iter().any(|e| e.value != 0));
+        assert!(right_non_zero, "RIGHT_SIGNATURE_ACC_RANGE はゼロであってはならない");
+    }
+
     // #[test]
     fn test_verify_with_trace() {
         let mut lamport = LamportPlus::new();
