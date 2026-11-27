@@ -186,7 +186,7 @@ impl Merkle {
                 traces[(i*8)+j][1] = FieldElement::new(little_endian[i] as u128, self.rp.field);
                 traces[(i*8)+j][2..8].copy_from_slice(&rescue_trace[j]);
             }
-            total_index = total_index + (little_endian[i] as u128*((i+1) as u128)*(2^i as u128));
+            total_index += little_endian[i] as u128 * (1u128 << i);
         }
         // Step 3: root と比較
         (r[0] == root[0] && r[1] == root[1], traces)
@@ -248,6 +248,42 @@ mod tests {
             assert!(is_valid, "proof should verify for index {}", i);
         }
     }
+    // BUG-2: total_index の累積計算で `2^i` が XOR になっていたバグの再現テスト。
+    // index=6 (2進数 110)、path.len()=4(葉含む) の 8 葉ツリーを使う。
+    // little_endian[0..4] = [0, 1, 1, 0]
+    //
+    // ループ i=1 の更新後 (traces[16][0] に記録される値):
+    //   正しくは: 0 + 1 * 2^1 = 2
+    //   XOR バグ: 0 + 1 * 2 * (2 XOR 1) = 1 * 2 * 3 = 6
+    #[test]
+    fn test_bug2_total_index_accumulation() {
+        let p: u128 = 340282366920938463463374557953744961537;
+        let field = Field::new(p);
+        let mut merkle = Merkle::new();
+
+        let leaves_data: Vec<Vec<FieldElement>> = (0u128..8)
+            .map(|v| vec![FieldElement::new(v, field), FieldElement::new(v * 10, field)])
+            .collect();
+
+        let root = merkle.rescue_commit(&leaves_data);
+        let index = 6usize; // 2進数 110 → little_endian = [0, 1, 1, ...]
+        let path = merkle.rescue_open_thereshold(index, &leaves_data);
+        // path.len() == 4 (path[0]=leaf, path[1..4]=siblings)
+
+        let (_is_valid, traces) = merkle.rescue_verify_threshold(&root, index, &path);
+
+        // ループ i=2 の開始時点で記録される total_index (traces[16][0]) を確認する。
+        // これはループ i=1 の更新後の値: little_endian[0] + little_endian[1] * 2^1
+        //   = 0 + 1 * 2 = 2 (correct)
+        //   XOR bug では 0 + 1*2*(2 XOR 1) = 6
+        let total_index_at_i2 = traces[16][0].value;
+        assert_eq!(
+            total_index_at_i2, 2,
+            "total_index after i=1 step should be 2 (= 0 + 1*2^1), got {}",
+            total_index_at_i2
+        );
+    }
+
     #[test]
     fn test_blake_merkle_commit_open_verify() {
         let p: u128 = 340282366920938463463374557953744961537;
