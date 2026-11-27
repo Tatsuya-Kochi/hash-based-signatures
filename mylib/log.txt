@@ -1,0 +1,324 @@
+   Compiling mylib v0.1.0 (/home/c0a20063/test_rust/hello_cargo/mylib)
+warning: unused import: `core::num`
+ --> src/rescue_prime.rs:1:5
+  |
+1 | use core::num;
+  |     ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `blake3::Hash`
+ --> src/rescue_prime.rs:4:5
+  |
+4 | use blake3::Hash;
+  |     ^^^^^^^^^^^^
+
+warning: unnecessary trailing semicolon
+   --> src/agg_sig.rs:191:61
+    |
+191 |                 let constraint = &one_m_s_poly * &diff_poly;;
+    |                                                             ^ help: remove this semicolon
+    |
+    = note: `#[warn(redundant_semicolons)]` on by default
+
+warning: unused import: `serde::de::value`
+   --> src/polynomial.rs:341:9
+    |
+341 |     use serde::de::value;
+    |         ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `core::num`
+ --> src/rescue_prime.rs:1:5
+  |
+1 | use core::num;
+  |     ^^^^^^^^^
+
+warning: unused import: `crate::mpolynomial::MPolynomial`
+   --> src/stark.rs:456:9
+    |
+456 |     use crate::mpolynomial::MPolynomial;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::lamport_plus::LamportPlus`
+   --> src/agg_sig.rs:445:9
+    |
+445 |     use crate::lamport_plus::LamportPlus;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `modulus::FieldElement`
+   --> src/agg_sig.rs:446:9
+    |
+446 |     use modulus::FieldElement;
+    |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::rescue_prime::RescuePrime`
+   --> src/agg_sig.rs:448:9
+    |
+448 |     use crate::rescue_prime::RescuePrime;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: value assigned to `r` is never read
+   --> src/merkle.rs:155:17
+    |
+155 |         let mut r = [Field::zero(self.rp.field), Field::zero(self.rp.field)]; // 初期化
+    |                 ^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: value assigned to `rescue_trace` is never read
+   --> src/merkle.rs:160:17
+    |
+160 |         let mut rescue_trace = [[Field::zero(self.rp.field); 6]; 8]; // 初期化
+    |                 ^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `rescue_trace` is never read
+   --> src/merkle.rs:172:21
+    |
+172 |             let mut rescue_trace = [[Field::zero(self.rp.field); 6]; 8];
+    |                     ^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+   --> src/agg_sig.rs:170:17
+    |
+170 |             let mut one_m_s_poly = &one_poly - &m_s_poly;
+    |                 ----^^^^^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/agg_sig.rs:171:17
+    |
+171 |             let mut one_m_h_poly = &one_poly - &m_h_poly;
+    |                 ----^^^^^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/agg_sig.rs:217:21
+    |
+217 |                 let mut temp_poly = &MPolynomial::new(dict3) * &(&m_h_poly * &m_p_poly);
+    |                     ----^^^^^^^^^
+    |                     |
+    |                     help: remove this `mut`
+
+warning: unused variable: `expected_remainder`
+   --> src/polynomial.rs:452:13
+    |
+452 |         let expected_remainder = Polynomial::new(vec![
+    |             ^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expected_remainder`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/mpolynomial.rs:502:17
+    |
+502 |             let mut mono1 = BTreeMap::new();
+    |                 ----^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `step`
+   --> src/rescue_prime.rs:509:13
+    |
+509 |         let step = 0; // ステップのインデックス
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_step`
+
+warning: unused variable: `air`
+   --> src/rescue_prime.rs:510:13
+    |
+510 |         let air = rescue.rescue_air_round(index);
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_air`
+
+warning: variable does not need to be mutable
+   --> src/merkle.rs:270:13
+    |
+270 |         let mut merkle = Merkle::new();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `lamport`
+   --> src/lamport_plus.rs:437:13
+    |
+437 |         let lamport = LamportPlus::new();
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lamport`
+
+warning: unused variable: `counter`
+   --> src/lamport_plus.rs:459:26
+    |
+459 |         let (mined_bits, counter) = result.unwrap();
+    |                          ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_counter`
+
+warning: unused variable: `counter`
+   --> src/lamport_plus.rs:477:26
+    |
+477 |         let (mined_bits, counter) = result.unwrap();
+    |                          ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_counter`
+
+warning: unused variable: `pb`
+   --> src/lamport_plus.rs:479:18
+    |
+479 |         let (pr, pb) = lamport.keygen(&mined_bits);
+    |                  ^^ help: if this is intentional, prefix it with an underscore: `_pb`
+
+warning: unused variable: `counter`
+   --> src/lamport_plus.rs:498:26
+    |
+498 |         let (mined_bits, counter) = result.unwrap();
+    |                          ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_counter`
+
+warning: unused variable: `pb`
+   --> src/lamport_plus.rs:500:18
+    |
+500 |         let (pr, pb) = lamport.keygen(&mined_bits);
+    |                  ^^ help: if this is intentional, prefix it with an underscore: `_pb`
+
+warning: unused variable: `a`
+   --> src/fri.rs:499:13
+    |
+499 |         let a: &[FieldElement] = &last_codeword[0..3];
+    |             ^ help: if this is intentional, prefix it with an underscore: `_a`
+
+warning: unused variable: `b`
+   --> src/fri.rs:500:13
+    |
+500 |         let b: &[FieldElement] = &last_domain[0..3];  
+    |             ^ help: if this is intentional, prefix it with an underscore: `_b`
+
+warning: variable does not need to be mutable
+   --> src/agg_sig.rs:170:17
+    |
+170 |             let mut one_m_s_poly = &one_poly - &m_s_poly;
+    |                 ----^^^^^^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `num_signer`
+   --> src/agg_sig.rs:455:13
+    |
+455 |         let num_signer = 1; // 署名者の数
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_num_signer`
+
+warning: function `test_mpolynomial_pow` is never used
+   --> src/mpolynomial.rs:584:8
+    |
+584 |     fn test_mpolynomial_pow() {
+    |        ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `test_speed` is never used
+   --> src/rescue_prime.rs:487:8
+    |
+487 |     fn test_speed() {
+    |        ^^^^^^^^^^
+
+warning: function `test_keygen` is never used
+   --> src/lamport_plus.rs:450:8
+    |
+450 |     fn test_keygen() {
+    |        ^^^^^^^^^^^
+
+warning: function `test_sign_and_verify` is never used
+   --> src/lamport_plus.rs:468:8
+    |
+468 |     fn test_sign_and_verify() {
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `test_verify_with_trace` is never used
+   --> src/lamport_plus.rs:489:8
+    |
+489 |     fn test_verify_with_trace() {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `test_prove_and_verify_success` is never used
+   --> src/fri.rs:513:8
+    |
+513 |     fn test_prove_and_verify_success() {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `mylib` (lib) generated 9 warnings (run `cargo fix --lib -p mylib` to apply 5 suggestions)
+warning: `mylib` (lib test) generated 34 warnings (7 duplicates) (run `cargo fix --lib -p mylib --tests` to apply 9 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.88s
+     Running unittests src/lib.rs (target/debug/deps/mylib-4ed8d8b7b5beddcd)
+
+running 49 tests
+Aggregateの速度テスト
+test fri::tests::test_sample_indices_error_conditions ... ok
+test fri::tests::test_sample_indices_determinism ... ok
+test lamport_plus::tests::test_mine_message_finds_solution ... ok
+test fri::tests::test_sample_indices_validity_and_uniqueness ... ok
+test merkle::tests::test_blake_merkle_commit_open_verify ... ok
+test modulus::tests::test_from_bits ... ok
+test modulus::tests::test_modulus_add ... ok
+test modulus::tests::test_modulus_pow ... ok
+test modulus::tests::test_modulus_sub ... ok
+test modulus::tests::test_modulus_mul ... ok
+test modulus::tests::test_sample ... ok
+test mpolynomial::tests::test_lift ... ok
+test modulus::tests::test_inverse ... ok
+test mpolynomial::tests::test_mpolynomial_add ... ok
+test mpolynomial::tests::test_mpolynomial_evaluate ... ok
+test mpolynomial::tests::test_mpolynomial_negate ... ok
+test mpolynomial::tests::test_mpolynomial_evaluate_symbolic ... ok
+test mpolynomial::tests::test_mpolynomial_mul ... ok
+test mpolynomial::tests::test_mpolynomial_sub ... ok
+test mpolynomial::tests::test_transition_constraints ... ok
+test polynomial::tests::test_divide_zero_numerator ... ok
+test polynomial::tests::test_evaluate ... ok
+test polynomial::tests::test_divide_with_remainder ... ok
+test mpolynomial::tests::test_variables ... ok
+Interpolating polynomial from domain and values...
+test polynomial::tests::test_polynomial_add ... ok
+test modulus::tests::test_modulus_div ... ok
+test polynomial::tests::test_polynomial_div_no_reminder ... ok
+test polynomial::tests::test_polynomial_mul ... ok
+test polynomial::tests::test_polynomial_pow ... ok
+test polynomial::tests::test_polynomial_scale ... ok
+test polynomial::tests::test_polynomial_sub ... ok
+test polynomial::tests::test_zerofier_domain ... ok
+test proofstream::tests::test_fiat_shamir_consistency ... ok
+test proofstream::tests::test_fiat_shamir_diff ... ok
+test proofstream::tests::test_push_and_pull ... ok
+test proofstream::tests::test_serialize_deserialize ... ok
+test polynomial::tests::test_interpolate_domain_2 ... okInterpolating polynomial from domain and values...
+
+test polynomial::tests::test_interpolate_domain ... ok
+test polynomial::tests::test_evaluate_domain ... ok
+RescuePrimeのAIR計算テスト
+test rescue_prime::tests::test_update_with_trace ... ok
+test rescue_prime::tests::test_hash_with_trace ... ok
+test rescue_prime::tests::test_rescue_hash_deterministic ... ok
+test rescue_prime::tests::test_rescue_hash_collision_resistance ... ok
+test rescue_prime::tests::test_rescue_air_round ... ok
+test merkle::tests::test_rescue_merkle_commit_open_verify ... ok
+Interpolating polynomial from domain and values...
+Interpolating polynomial from domain and values...
+test stark::tests::test_boundary_interpolants ... ok
+test stark::tests::test_boundary_zerofiers ... ok
+Interpolating polynomial from domain and values...
+test fri::tests::test_codewords ... ok
+Generating traces for each signature...
+All signatures are valid. Proceeding with aggregation...
+Generating STARK boundary constraints...
+Generating STARK transition constraints...
+Generating transition constraints for signer...
+Generating constraints for registers 2 and 3...Generating constraints for registers 0 and 1...Generating constraints for registers 4 and 5...
+Generating constraints for registers 4 and 5...Generating constraints for registers 6 to 9...Generating constraints for registers 12 to 15...
+Generating constraints for registers 16 to 21...
+Generating STARK proof...
+Generating trace domain...
+Generating trace polynomials...
+Interpolating polynomial from domain and values...
+test agg_sig::tests::test_agg_sig has been running for over 60 seconds

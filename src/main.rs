@@ -1,6 +1,6 @@
 fn main() {
     let number: u128 = 340282366920938463463374607431768211156;
-    
+
     let binary_string = format!("{:b}", number);
     let index = 127;
     if let Some(character) = binary_string.chars().nth(index) {
@@ -9,7 +9,10 @@ fn main() {
         println!("Index out of bounds.");
     }
     // 結果を表示
-    println!("The binary representation of {} is {}", number, binary_string);
+    println!(
+        "The binary representation of {} is {}",
+        number, binary_string
+    );
 
     let binary_string = String::from("1111"); // 13 in decimal
 

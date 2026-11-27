@@ -1,0 +1,32 @@
+@startuml mylib_layers
+title モジュール構成
+top to bottom direction
+skinparam componentStyle rectangle
+skinparam defaultFontName "Noto Sans CJK JP"
+
+package "アプリ層" as app {
+  [lamport_plus\nLamport+ 署名] as lamport
+  [agg_sig\n署名を集約] as agg
+}
+
+package "証明系層" as proof {
+  [stark\n証明・検証] as stark
+  [fri\n次数境界の証明] as fri
+}
+
+package "プリミティブ層" as prim {
+  [rescue_prime\nハッシュ関数] as rescue
+  [merkle\nコミットメント] as merkle
+  [proofstream\nFiat-Shamir] as ps
+}
+
+package "基盤層" as base {
+  [modulus\n有限体演算] as modulus
+  [polynomial\n一変数多項式] as poly
+  [mpolynomial\n多変数多項式] as mpoly
+}
+
+app ..> proof : 利用
+proof ..> prim : 利用
+prim ..> base : 利用
+@enduml

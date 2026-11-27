@@ -1,0 +1,53 @@
+   Compiling mylib v0.1.0 (/home/c0a20063/test_rust/hello_cargo/mylib)
+warning: unused variable: `sum_const`
+   --> mylib/src/rescue_prime.rs:354:17
+    |
+354 |         let mut sum_const = MPolynomial::new(HashMap::new());
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sum_const`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+   --> mylib/src/rescue_prime.rs:354:13
+    |
+354 |         let mut sum_const = MPolynomial::new(HashMap::new());
+    |             ----^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: value assigned to `r` is never read
+   --> mylib/src/merkle.rs:155:17
+    |
+155 |         let mut r = [Field::zero(self.rp.field), Field::zero(self.rp.field)]; // 初期化
+    |                 ^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: value assigned to `rescue_trace` is never read
+   --> mylib/src/merkle.rs:160:17
+    |
+160 |         let mut rescue_trace = [[Field::zero(self.rp.field); 6]; 8]; // 初期化
+    |                 ^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `rescue_trace` is never read
+   --> mylib/src/merkle.rs:172:21
+    |
+172 |             let mut rescue_trace = [[Field::zero(self.rp.field); 6]; 8];
+    |                     ^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: `mylib` (lib) generated 5 warnings (run `cargo fix --lib -p mylib` to apply 1 suggestion)
+   Compiling hello_cargo v0.1.0 (/home/c0a20063/test_rust/hello_cargo)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.94s
+     Running unittests src/main.rs (target/debug/deps/hello_cargo-eb9a7b58bd456af5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

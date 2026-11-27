@@ -1,0 +1,116 @@
+@startuml
+title STARKを利用した集約署名（Anemoi置換版）ブロック図\n― mylib 実装準拠 ―
+
+skinparam defaultFontName "Meiryo"
+skinparam shadowing false
+skinparam rectangle {
+  RoundCorner 8
+}
+
+legend top right
+  |= 色 |= 意味 |
+  |<#C8E6C9>| 提案部分（Anemoi置換） |
+  |<#FFF3CD>| 現行実装（置換対象） |
+  |<#EEEEEE>| 未統合・コメントアウト中 |
+endlegend
+
+' ================= 入力 =================
+package "入力" {
+  rectangle "メッセージ × n" as MSG
+  rectangle "秘密鍵 × n" as SKIN
+}
+
+' ================= アプリケーション層 =================
+package "アプリケーション層" {
+  package "lamport_plus.rs（LamportPlus）" {
+    rectangle "mine_message_sha512()\nSHA-512 PoW で\nメッセージを変換" as MINE
+    rectangle "keygen()\n秘密鍵 → 公開鍵" as KG
+    rectangle "sign()\n署名生成" as SG
+    rectangle "verify_with_trace_agg()\n署名検証 + 実行トレース生成\n1024 ステップ × 22 レジスタ" as VT
+  }
+  package "agg_sig.rs（AggSig）" {
+    rectangle "boundary_constraints()\n境界制約\n（初期メッセージ / 最終アキュムレータ）" as BC
+    rectangle "generate_transition_constraints()\n遷移制約\n（ハッシュ計算の各ステップ）" as TC
+  }
+  rectangle "threshold_sig.rs\n閾値署名\n（lib.rs でコメントアウト中）" as TH #EEEEEE;line.dashed
+}
+
+' ================= 証明系層 =================
+package "証明系層" {
+  package "stark.rs（Stark::prove）" {
+    rectangle "多項式補間\n（omicron ドメイン上）" as INTERP
+    rectangle "境界商・遷移商\n多項式の計算" as QUO
+    rectangle "ランダム重み付き\n線形結合" as COMB
+  }
+  package "fri.rs（Fri）" {
+    rectangle "FRI 折り畳み\nN → N/2 → … → 定数多項式" as FOLD
+    rectangle "コリニアリティ検証\n× colinearity_checks 回" as COL
+  }
+}
+
+' ================= 暗号プリミティブ層 =================
+package "暗号プリミティブ層" {
+  rectangle "RescuePrime（rescue_prime.rs）\n状態サイズ 6 / ラウンド数 7\nトレース付きハッシュ + AIR 制約生成" as RP #FFF3CD
+  rectangle "Anemoi（anemoi_hash.rs）\nRescuePrime を置換\nFreelunch・代数的攻撃耐性\n（実装中・未統合）" as AN #C8E6C9
+  rectangle "Merkle（merkle.rs）\nRescuePrime / BLAKE3 対応" as MK
+  rectangle "ProofStream（proofstream.rs）\nbincode シリアライズ\n+ BLAKE3 Fiat-Shamir" as PS
+}
+
+' ================= 基盤層 =================
+package "基盤層" {
+  rectangle "modulus.rs\nField / FieldElement\np = 2^128 − 45·2^40 + 1" as FE
+  rectangle "polynomial.rs\nPolynomial\nFFT(NTT) 補間・商算" as PO
+  rectangle "mpolynomial.rs\nMPolynomial\n遷移制約の記述" as MP
+}
+
+' ================= 出力・検証 =================
+package "出力 / 検証者" {
+  rectangle "STARK 証明\n（ProofStream）" as PROOF
+  rectangle "Stark::verify()\nAggSig 検証" as VF
+}
+
+' ================= データの流れ =================
+MSG --> MINE
+SKIN --> KG
+MINE --> KG : mined_bits
+MINE --> SG : mined_bits
+KG --> SG : 秘密鍵
+KG --> VT : 公開鍵
+SG --> VT : 署名
+
+VT --> INTERP : 実行トレース
+VT --> BC
+VT --> TC
+BC --> QUO
+TC --> QUO
+INTERP --> QUO
+QUO --> COMB
+COMB --> FOLD
+FOLD --> COL
+COL --> PS
+PS --> PROOF
+PROOF --> VF : 受理 / 拒否
+
+' ================= 依存関係 =================
+RP ..> KG : ハッシュ
+RP ..> VT : トレース付きハッシュ
+RP ..> TC : AIR 制約
+AN ..> RP : <<置換>>
+FOLD ..> MK : コミットメント
+COMB ..> PS : Fiat-Shamir\n重み・α
+INTERP ..> PO
+TC ..> MP
+PO ..> FE
+TH ..> VT : 将来統合
+
+note right of AN
+  AnemoiのAIR
+  ・RescuePrimeのAIRを参考に次数を抑えて設計
+  ・トレース長：約3倍（ラウンド数の影響）
+  ・AIR次数・レジスタ数：RescuePrimeより軽量
+  実験結果
+  ・ハッシュ単体：32% 高速
+  ・集約署名（n=64）の証明生成：14% 高速
+end note
+
+@enduml
