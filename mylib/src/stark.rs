@@ -409,7 +409,8 @@ impl Stark {
         let mut leafs: Vec<_> = (0..self.num_registers).map(|_| std::collections::HashMap::new()).collect();
         for r in 0..self.num_registers {
             for &i in &duplicated_indices {
-                let value: FieldElement = proof_stream.pull();
+                let values: Vec<FieldElement> = proof_stream.pull();
+                let value = values[0];
                 let path: Vec<Vec<u8>> = proof_stream.pull();
                 if !Merkle::new().blake_verify(boundary_quotient_roots[r].clone(), i as usize, &path, value.value.to_be_bytes().to_vec()) {
                     return false;
@@ -421,7 +422,8 @@ impl Stark {
         // ランダム化された商の Merkle 認証（値＋パス）を検証しながら格納
         let mut randomizer = std::collections::HashMap::new();
         for &i in &indices {
-            let value: FieldElement = proof_stream.pull();
+            let values: Vec<FieldElement> = proof_stream.pull();
+            let value = values[0];
             let path: Vec<Vec<u8>> = proof_stream.pull();
             if !Merkle::new().blake_verify(randomizer_root.clone(), i as usize, &path, value.value.to_be_bytes().to_vec()) {
                 return false;
@@ -548,11 +550,12 @@ mod tests {
         );
 
         // register 0 に trace_degree(=3) 点の境界制約 → boundary quotient 次数 = 0
+        // max_step=3 にすることで verify の original_trace_length = 1+3 = 4 = trace.len() と一致させる
         // register 1 は一切制約なし
         let boundary = vec![
             (0usize, 0usize, FieldElement::new(1, field)),
             (1usize, 0usize, FieldElement::new(1, field)),
-            (2usize, 0usize, FieldElement::new(1, field)),
+            (3usize, 0usize, FieldElement::new(1, field)),
         ];
 
         // 境界を満たす単純なトレース (register0=1, register1=2 で固定)

@@ -91,7 +91,7 @@ impl Fri {
         let domain: Vec<FieldElement> = points.iter().map(|p| p[0].clone()).collect();
         let values: Vec<FieldElement> = points.iter().map(|p| p[1].clone()).collect();
         let polynomial: Polynomial = Polynomial::interpolate_domain(&domain, &values);
-        polynomial.degree() == 1
+        polynomial.degree() <= 1
     }
 
     // コードワードをコミットし、各ラウンドのコードワードを返す
@@ -296,7 +296,6 @@ impl Fri {
 
                 if r == 0 {
                     polynomial_values.push((a_indices[s], ay));
-                    polynomial_values.push((b_indices[s], by));
                 }
 
                 let ax = &offset * &omega.pow(a_indices[s]);
