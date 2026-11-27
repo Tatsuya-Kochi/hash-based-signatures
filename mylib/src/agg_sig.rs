@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::{HashMap};
 use crate::modulus;
 use crate::mpolynomial::MPolynomial;
@@ -40,13 +41,15 @@ impl AggSig {
         num_cycles: usize,
         transition_constraints_degree: usize,
     ) -> Self {
+        let total_cycles = num_signer * num_cycles;
+
         let stark = Stark::new(
             field,
             expansion_factor,
             num_colinearity_checks,
             security_level,
             num_registers,
-            num_cycles,
+            total_cycles,
             transition_constraints_degree,
         );        
         AggSig { 
@@ -60,7 +63,7 @@ impl AggSig {
             num_colinearity_checks,
             security_level,
             num_registers,
-            num_cycles,
+            num_cycles: total_cycles,
             transition_constraints_degree,
             stark 
         }         
@@ -140,209 +143,255 @@ impl AggSig {
         let mut constraints: Vec<MPolynomial> = vec![];
 
         for _ in 0..self.num_signer {
+            println!("Generating transition constraints for signer...");
             let rescue_prime = rescue_prime::RescuePrime::new();
-            for step in 0..1024 {
-                // 各ステップの遷移制約を定義
 
-                // 周期
-                let m_h: u128 = if step % 8 == 7 { 1 } else { 0 };
-                let m_p: u128 = 1 << (step / 8);
-                let m_s: u128 = if step % 1024 == 1023 { 1 } else { 0 };
-                /*
-                ビットであることを確認する制約
-                (1-m_s) * (r_2^2 − r_2) = 0  (1)
-                (1-m_s) * (r_3^2 − r_3) = 0  (2)
-                */
-                for reg in 2..4 {
-                    // (1-m_s) * (r_reg^2 - r_reg) = 0
-                    let mut dict1 = HashMap::new();
-                    dict1.insert([(reg, 2)].into_iter().collect(), Field::one(self.field));
-                    let mut dict2 = HashMap::new();
-                    dict2.insert([(reg, 1)].into_iter().collect(), Field::one(self.field));
+            // 周期
+            let m_h = self.num_registers * 2 + 1;
+            let m_p = self.num_registers * 2 + 2;
+            let m_s = self.num_registers * 2 + 3;
+            let mut m_h_dict = HashMap::new();
+            let mut mono_m_h = BTreeMap::new();
+            mono_m_h.insert(m_h, 1);
+            m_h_dict.insert(mono_m_h, Field::one(self.field));
+            let m_h_poly = MPolynomial::new(m_h_dict);
+            let mut m_p_dict = HashMap::new();
+            let mut mono_m_p = BTreeMap::new();
+            mono_m_p.insert(m_p, 1);
+            m_p_dict.insert(mono_m_p, Field::one(self.field));
+            let m_p_poly = MPolynomial::new(m_p_dict);
+            let mut m_s_dict = HashMap::new();
+            let mut mono_m_s = BTreeMap::new();
+            mono_m_s.insert(m_s, 1);
+            m_s_dict.insert(mono_m_s, Field::one(self.field));
+            let m_s_poly = MPolynomial::new(m_s_dict);
+            let mut one_dict = HashMap::new();
+            one_dict.insert(BTreeMap::new(), Field::one(self.field));
+            let one_poly = MPolynomial::new(one_dict);
+            
+            let mut one_m_s_poly = &one_poly - &m_s_poly;
+            let mut one_m_h_poly = &one_poly - &m_h_poly;
+            /*
+            ビットであることを確認する制約
+            (1-m_s) * (r_2^2 − r_2) = 0  (1)
+            (1-m_s) * (r_3^2 − r_3) = 0  (2)
+            */
+            print!("Generating constraints for registers 2 and 3...");
+            for reg in 2..4 {
+                // (1-m_s) * (r_reg^2 - r_reg) = 0
+                let mut dict1 = HashMap::new();
+                let mut mono1 = BTreeMap::new();
+                mono1.insert(reg, 2);
+                dict1.insert(mono1, Field::one(self.field));
+                let mut dict2 = HashMap::new();
+                let mut mono2 = BTreeMap::new();
+                mono2.insert(reg, 1);
+                dict2.insert(mono2, Field::one(self.field));
 
-                    let diff_poly = &MPolynomial::new(dict1) - &MPolynomial::new(dict2);
-                    let constraint = MPolynomial::scale_polynomial(&diff_poly, &FieldElement::new(1 - m_s, self.field));
-                    constraints.push(constraint);   
-                }
-                /* 
-                メッセージの累積値を確認する制約
-                (1-m_s) * (r_0' − (r_0 + m_h * m_p * r_2)) = 0  (3)
-                (1-m_s) * (r_1' − (r_1 + m_h * m_p * r_3)) = 0  (4)
-                */
-                for reg in 0..2 {
-                    // r_reg'
-                    let mut dict1 = HashMap::new();
-                    dict1.insert([(reg + self.num_registers, 1)].into_iter().collect(), Field::one(self.field));
-                    // r_reg
-                    let mut dict2 = HashMap::new();
-                    dict2.insert([(reg, 1)].into_iter().collect(), Field::one(self.field));
-                    // m_h * m_p * r_(reg+2)
-                    let mut dict3 = HashMap::new();
-                    dict3.insert([(reg + 2, 1)].into_iter().collect(), FieldElement::new(m_h * m_p, self.field));
-    
-                    let diff_poly = &MPolynomial::new(dict1)
-                        - &(&MPolynomial::new(dict2) + &MPolynomial::new(dict3));
-    
-                    let constraint = MPolynomial::scale_polynomial(&diff_poly, &FieldElement::new(1 - m_s, self.field));
-                    constraints.push(constraint);
-                }
+                let diff_poly = &MPolynomial::new(dict1) - &MPolynomial::new(dict2);
                 
-                /* 
-                ・公開鍵の左半分のRescueハッシュの内部制約
-                (1-m_s) * (1 − m_h) * resc_0(r_4, r'_4) = 0  (5)
-                (1-m_s) * (1 − m_h) * resc_1(r_5, r'_5) = 0  (6)
-                (1-m_s) * (m_h * r'_6 + (1 − m_h) * resc_2(r_6, r'_6)) = 0  (7)
-                (1-m_s) * (m_h * r'_7 + (1 − m_h) * resc_3(r_7, r'_7)) = 0  (8)
-                (1-m_s) * (m_h * r'_8 + (1 − m_h) * resc_4(r_8, r'_8)) = 0  (9)
-                (1-m_s) * (m_h * r'_9 + (1 − m_h) * resc_5(r_9, r'_9)) = 0  (10)
-                */
-                let left_pub_keys_air = rescue_prime.rescue_air_round(4, step);
-                // (1-m_s) * (1 − m_h) * resc_0(r_4, r'_4) = 0  (5)
-                let constraint5 = 
-                    MPolynomial::scale_polynomial(&left_pub_keys_air, &FieldElement::new((1-m_s) * (1 - m_h), self.field));
-                constraints.push(constraint5.clone());
-                // (1-m_s) * (1 − m_h) * resc_1(r_5, r'_5) = 0  (6) (5)と一緒
-                let constraint6 = constraint5.clone();
-                constraints.push(constraint6);
+                let constraint = &one_m_s_poly * &diff_poly;;
+                constraints.push(constraint);   
+            }
+            /* 
+            メッセージの累積値を確認する制約
+            (1-m_s) * (r_0' − (r_0 + m_h * m_p * r_2)) = 0  (3)
+            (1-m_s) * (r_1' − (r_1 + m_h * m_p * r_3)) = 0  (4)
+            */
+            print!("Generating constraints for registers 0 and 1...");
+            for reg in 0..2 {
+                // r_reg'
+                let mut dict1 = HashMap::new();
+                let mut mono1 = BTreeMap::new();
+                mono1.insert(reg + self.num_registers, 1);
+                dict1.insert(mono1, Field::one(self.field));
+                // r_reg
+                let mut dict2 = HashMap::new();
+                let mut mono2 = BTreeMap::new();
+                mono2.insert(reg, 1);
+                dict2.insert(mono2, Field::one(self.field));
+                // r_(reg+2)
+                let mut dict3 = HashMap::new();
+                let mut mono3 = BTreeMap::new();
+                mono3.insert(reg + 2, 1);
+                dict3.insert(mono3, Field::one(self.field));
+                // m_h * m_p * r_2
+                let mut temp_poly = &MPolynomial::new(dict3) * &(&m_h_poly * &m_p_poly);
+                // r_reg' - (r_reg + m_h * m_p * r_2)
+                let temp_poly = &MPolynomial::new(dict1)
+                    - &(&MPolynomial::new(dict2) + &temp_poly);
 
-                for reg in 6..10 {
-                    // m_h * r_reg'
-                    let mut dict1 = HashMap::new();
-                    dict1.insert([(reg + self.num_registers, 1)].into_iter().collect(), FieldElement::new(m_h, self.field));
+                // (1-m_s) * (r_reg' - (r_reg + m_h * m_p * r_2))
+                let constraint = &one_m_s_poly * &temp_poly;
+                constraints.push(constraint);
+            }
+            
+            /* 
+            ・公開鍵の左半分のRescueハッシュの内部制約
+            (1-m_s) * (1 − m_h) * resc_0(r_4, r'_4) = 0  (5)
+            (1-m_s) * (1 − m_h) * resc_1(r_5, r'_5) = 0  (6)
+            (1-m_s) * (m_h * r'_6 + (1 − m_h) * resc_2(r_6, r'_6)) = 0  (7)
+            (1-m_s) * (m_h * r'_7 + (1 − m_h) * resc_3(r_7, r'_7)) = 0  (8)
+            (1-m_s) * (m_h * r'_8 + (1 − m_h) * resc_4(r_8, r'_8)) = 0  (9)
+            (1-m_s) * (m_h * r'_9 + (1 − m_h) * resc_5(r_9, r'_9)) = 0  (10)
+            */
+            println!("Generating constraints for registers 4 and 5...");
+            let left_pub_keys_air = rescue_prime.rescue_air_round(4);
+            print!("Generating constraints for registers 4 and 5...");
+            // (1-m_s) * (1 − m_h) * resc_0(r_4, r'_4) = 0  (5)
+            let mut constraint5 = 
+                &one_m_s_poly * &(&one_poly - &m_h_poly);
+            constraint5 = &constraint5 * &left_pub_keys_air;
+            constraints.push(constraint5.clone());
+            // (1-m_s) * (1 − m_h) * resc_1(r_5, r'_5) = 0  (6) (5)と一緒
+            let constraint6 = constraint5.clone();
+            constraints.push(constraint6);
 
-                    // (1 − m_h) * resc
-                    let constraint = MPolynomial::scale_polynomial(&left_pub_keys_air, &FieldElement::new(1 - m_h, self.field));
+            print!("Generating constraints for registers 6 to 9...");
+            for reg in 6..10 {
+                // r_reg'
+                let mut dict1 = HashMap::new();
+                let mut mono1 = BTreeMap::new();
+                mono1.insert(reg + self.num_registers, 1);
+                dict1.insert(mono1, Field::one(self.field));
+                // m_h * r'_6
+                let mut constraint = &MPolynomial::new(dict1) * &m_h_poly;
+                // (m_h * r'_6 + (1 − m_h)
+                constraint = &constraint + &one_m_h_poly;
+                constraint = &constraint * &left_pub_keys_air;
+                // (1-m_s) * (m_h * r'_6 + (1 − m_h) * resc_2(r_6, r'_6))
+                constraint = &constraint * &one_m_s_poly;
+                constraints.push(constraint);
+            }
+            /*
+            署名の右半分を検証する際の制約
+            (1-m_s) * (1 − m_h) * resc_0(r_{10}, r'_{10}) = 0  (11)
+            (1-m_s) * (1 − m_h) * resc_1(r_{11}, r'_{11}) = 0  (12)
+            (1-m_s) * (m_h * r'_{12} + (1 − m_h) * resc_2(r_{12}, r'_{12})) = 0  (13)
+            (1-m_s) * (m_h * r'_{13} + (1 − m_h) * resc_3(r_{13}, r'_{13})) = 0  (14)
+            (1-m_s) * (m_h * r'_{14} + (1 − m_h) * resc_4(r_{14}, r'_{14})) = 0  (15)
+            (1-m_s) * (m_h * r'_{15} + (1 − m_h) * resc_5(r_{15}, r'_{15})) = 0  (16) 
+            */
+            let right_pub_keys_air = rescue_prime.rescue_air_round(10);
+            // (1-m_s) * (1 − m_h) * resc (11)
+            let constraint11 = 
+                &(&one_m_s_poly * &one_m_h_poly) * &right_pub_keys_air;
+            constraints.push(constraint11.clone());
+            // (1-m_s) * (1 − m_h) * resc = 0  (12) 11と一緒
+            let constraint12 = constraint11.clone();
+            constraints.push(constraint12);
 
-                    // (m_h * r'_i + (1 − m_h) * resc
-                    let combined_poly 
-                        = &MPolynomial::new(dict1) + &constraint;
-                    
-                    // //(1-m_s) * (m_h * r'_i + (1 − m_h) * resc = 0
-                    let constraint = 
-                    MPolynomial::scale_polynomial(&combined_poly, &FieldElement::new(1-m_s, self.field));
-                    constraints.push(constraint);
-                }
-                /*
-                署名の右半分を検証する際の制約
-                (1-m_s) * (1 − m_h) * resc_0(r_{10}, r'_{10}) = 0  (11)
-                (1-m_s) * (1 − m_h) * resc_1(r_{11}, r'_{11}) = 0  (12)
-                (1-m_s) * (m_h * r'_{12} + (1 − m_h) * resc_2(r_{12}, r'_{12})) = 0  (13)
-                (1-m_s) * (m_h * r'_{13} + (1 − m_h) * resc_3(r_{13}, r'_{13})) = 0  (14)
-                (1-m_s) * (m_h * r'_{14} + (1 − m_h) * resc_4(r_{14}, r'_{14})) = 0  (15)
-                (1-m_s) * (m_h * r'_{15} + (1 − m_h) * resc_5(r_{15}, r'_{15})) = 0  (16) 
-                */
-                let right_pub_keys_air = rescue_prime.rescue_air_round(10, step);
-                // (1-m_s) * (1 − m_h) * resc (11)
-                let constraint11 = 
-                    MPolynomial::scale_polynomial(&right_pub_keys_air, &FieldElement::new((1-m_s) * (1 - m_h), self.field));
-                constraints.push(constraint11.clone());
-                // (1-m_s) * (1 − m_h) * resc = 0  (12) 11と一緒
-                let constraint12 = constraint11.clone();
-                constraints.push(constraint12);
+            println!("Generating constraints for registers 12 to 15...");
+            for reg in 12..16 {
+                // m_h * r_reg'
+                // r_reg'
+                let mut dict1 = HashMap::new();
+                let mut mono1 = BTreeMap::new();
+                mono1.insert(reg + self.num_registers, 1);
+                dict1.insert(mono1, Field::one(self.field));
+                // m_h * r'_6
+                let mut constraint = &MPolynomial::new(dict1) * &m_h_poly;
+                // (m_h * r'_6 + (1 − m_h)
+                constraint = &constraint + &one_m_h_poly;
+                constraint = &constraint * &left_pub_keys_air;
+                // (1-m_s) * (m_h * r'_6 + (1 − m_h) * resc_2(r_6, r'_6))
+                constraint = &constraint * &one_m_s_poly;
+                constraints.push(constraint);
+            }
+            
+            /*
+            ・公開鍵アキュムレータの制約
+            (1-m_s) * (m_h * r_2 * (r'_{16} − r_4) + (1 − m_h) * resc_0(r_{16}, r'_{16})) = 0  (17)
+            (1-m_s) * (m_h * r_2 * (r'_{17} − r_5) + (1 − m_h) * resc_1(r_{17}, r'_{17})) = 0  (18)
+            (1-m_s) * (m_h * r_3 * (r'_{18} − r_{10}) + (1 − m_h) * resc_2(r_{18}, r'_{18})) = 0  (19)
+            (1-m_s) * (m_h * r_3 * (r'_{19} − r_{11}) + (1 − m_h) * resc_3(r_{19}, r'_{19})) = 0  (20)
+            (1-m_s) * (m_h * (r'_{20} − r_{20}) + (1 − m_h) * resc_4(r_{20}, r'_{20})) = 0  (21)
+            (1-m_s) * (m_h * (r'_{21} − r_{21}) + (1 − m_h) * resc_5(r_{21}, r'_{21})) = 0  (22)
+            */
+            let pub_acc = rescue_prime.rescue_air_round(16);
+            
+            println!("Generating constraints for registers 16 to 21...");
+            for reg in 16..18 {
+                // r_reg'
+                let mut dict1 = HashMap::new();
+                let mut mono1 = BTreeMap::new();
+                mono1.insert(reg + self.num_registers, 1);
+                dict1.insert(mono1, Field::one(self.field));
+                // r_{reg-12}
+                let mut dict2 = HashMap::new();
+                let mut mono2 = BTreeMap::new();
+                mono2.insert(reg - 12, 1);
+                dict2.insert(mono2, Field::one(self.field));
+                // r_2
+                let mut dict3 = HashMap::new();
+                let mut mono3 = BTreeMap::new();
+                mono3.insert(2, 1);
+                dict3.insert(mono3, Field::one(self.field));   
+                // m_h * r_2
+                let mut left_poly = &MPolynomial::new(dict3) * &m_h_poly;
+                // m_h * r_2 * (r'_{16} − r_4
+                left_poly = &left_poly * &(&MPolynomial::new(dict1) - &MPolynomial::new(dict2));
+                // (1 − m_h) * resc_1(r_{17}, r'_{17}))
+                let right_poly = &one_m_h_poly * &pub_acc;
+                // (1-m_s) * (m_h * r_2 * (r'_{16} − r_4) + (1 − m_h) * resc_0(r_{16}, r'_{16}))
+                let constraint = &(&left_poly + &right_poly) * &one_m_s_poly;
+                constraints.push(constraint);
+            }
 
-                for reg in 12..16 {
-                    // m_h * r_reg'
-                    let mut dict1 = HashMap::new();
-                    dict1.insert([(reg + self.num_registers, 1)].into_iter().collect(), FieldElement::new(m_h, self.field));
-
-                    // (1 − m_h) * resc
-                    let resc_poly = 
-                        MPolynomial::scale_polynomial(&right_pub_keys_air, &FieldElement::new(1 - m_h, self.field));
-                    // (m_h * r_i' + ((1 − m_h) * resc))
-                    let conbined_poly = &MPolynomial::new(dict1) + &resc_poly;
-
-                    // (1 - m_s) * (m_h * r_i' + ((1 − m_h) * resc))
-                    let constraint = 
-                        MPolynomial::scale_polynomial(&conbined_poly, &FieldElement::new(1 - m_h, self.field));
-                    constraints.push(constraint);
-                }
+            for reg in 18..20 {
+                // r_reg'
+                let mut dict1 = HashMap::new();
+                let mut mono1 = BTreeMap::new();
+                mono1.insert(reg + self.num_registers, 1);
+                dict1.insert(mono1, Field::one(self.field));
+                // r_{reg-8}
+                let mut dict2 = HashMap::new();
+                let mut mono2 = BTreeMap::new();
+                mono2.insert(reg - 8, 1);
+                dict2.insert(mono2, Field::one(self.field));
+                // r_3
+                let mut dict3 = HashMap::new();
+                let mut mono3 = BTreeMap::new();
+                mono3.insert(3, 1);
+                dict3.insert(mono3, Field::one(self.field));
                 
-                /*
-                ・公開鍵アキュムレータの制約
-                (1-m_s) * (m_h * r_2 * (r'_{16} − r_4) + (1 − m_h) * resc_0(r_{16}, r'_{16})) = 0  (17)
-                (1-m_s) * (m_h * r_2 * (r'_{17} − r_5) + (1 − m_h) * resc_1(r_{17}, r'_{17})) = 0  (18)
-                (1-m_s) * (m_h * r_3 * (r'_{18} − r_{10}) + (1 − m_h) * resc_2(r_{18}, r'_{18})) = 0  (19)
-                (1-m_s) * (m_h * r_3 * (r'_{19} − r_{11}) + (1 − m_h) * resc_3(r_{19}, r'_{19})) = 0  (20)
-                (1-m_s) * (m_h * (r'_{20} − r_{20}) + (1 − m_h) * resc_4(r_{20}, r'_{20})) = 0  (21)
-                (1-m_s) * (m_h * (r'_{21} − r_{21}) + (1 − m_h) * resc_5(r_{21}, r'_{21})) = 0  (22)
-                */
-                let pub_acc = rescue_prime.rescue_air_round(16, step);
-                
-                for reg in 16..18 {
-                    // r_reg'
-                    let mut dict1 = HashMap::new();
-                    dict1.insert([(reg + self.num_registers, 1)].into_iter().collect(), Field::one(self.field));
-                    // r_{reg-12}
-                    let mut dict2 = HashMap::new();
-                    dict2.insert([(reg - 12, 1)].into_iter().collect(), Field::one(self.field));
-                    // m_h * r_2
-                    let mut dict3 = HashMap::new();
-                    dict3.insert([(2, 1)].into_iter().collect(), FieldElement::new(m_h, self.field));
+                // m_h * r_3
+                let left_poly = &MPolynomial::new(dict3) * &m_h_poly;
+                // m_h * r_3 * (r'_{18} − r_{10})
+                let left_poly = &left_poly * &(&MPolynomial::new(dict1) - &MPolynomial::new(dict2));
+                // (1 − m_h) * resc_2(r_{18}, r'_{18})
+                let right_poly = &one_m_h_poly * &pub_acc;
+                // (1-m_s) * (m_h * r_3 * (r'_{18} − r_{10}) + (1 − m_h) * resc_2(r_{18}, r'_{18}))
+                let constraint = &(&left_poly + &right_poly) * &one_m_s_poly;
+                constraints.push(constraint);
+            }
 
-                    // m_h * r_2 * (r'_reg − r_{reg-12})
-                    let left_poly 
-                        = &MPolynomial::new(dict3) * &(&MPolynomial::new(dict1) - &MPolynomial::new(dict2));
+            for reg in 20..22 {
+                // r_reg'
+                let mut dict1 = HashMap::new();
+                let mut mono1 = BTreeMap::new();
+                mono1.insert(reg + self.num_registers, 1);
+                dict1.insert(mono1, Field::one(self.field));
+                // r_reg
+                let mut dict2 = HashMap::new();
+                let mut mono2 = BTreeMap::new();
+                mono2.insert(reg, 1);
+                dict2.insert(mono2, Field::one(self.field));
+                // (m_h * (r_reg' − r_{reg}))
+                let left_poly 
+                    = &m_h_poly * &(&MPolynomial::new(dict1) - &MPolynomial::new(dict2));
 
-                    // (1 − m_h) * resc
-                    let right_poly = 
-                        MPolynomial::scale_polynomial(&pub_acc, &FieldElement::new( 1-m_h, self.field));
-                    
-                    // (1-m_s) * (m_h * r_2 * (r'_reg − r_{reg-12}) + (1 − m_h) * resc) = 0
-                    let combined_poly = &left_poly + &right_poly;
-                    let constraint = 
-                        MPolynomial::scale_polynomial(&combined_poly, &FieldElement::new( 1-m_s, self.field));
-                    constraints.push(constraint);
-                }
+                // (1 − m_h) * resc
+                let right_poly = 
+                    &one_m_h_poly * &pub_acc;
+                // (1-m_s) * (m_h * (r_reg' − r_{reg}) + (1 − m_h) * resc)
 
-                for reg in 18..20 {
-                    // r_reg'
-                    let mut dict1 = HashMap::new();
-                    dict1.insert([(reg + self.num_registers, 1)].into_iter().collect(), Field::one(self.field));
-                    // r_{reg-8}
-                    let mut dict2 = HashMap::new();
-                    dict2.insert([(reg - 8, 1)].into_iter().collect(), Field::one(self.field));
-
-                    // m_h * r_3
-                    let mut dict3 = HashMap::new();
-                    dict3.insert([(3, 1)].into_iter().collect(), FieldElement::new(m_h, self.field));
-
-                    // m_h * r_3 * (r'_reg − r_{reg-8})
-                    let left_poly 
-                        = &MPolynomial::new(dict3) * &(&MPolynomial::new(dict1) - &MPolynomial::new(dict2));
-
-                    // (1 − m_h) * resc
-                    let right_poly = 
-                        MPolynomial::scale_polynomial(&pub_acc, &FieldElement::new( 1-m_h, self.field));
-                    
-                    // (1-m_s) * (   m_h * r_3 * (r'_reg − r_{reg-8}) + (1 − m_h) * resc)   ) = 0
-                    let conbined_poly = &left_poly + &right_poly;
-                    let constraint = 
-                        MPolynomial::scale_polynomial(&conbined_poly, &FieldElement::new( 1-m_s, self.field));
-                    constraints.push(constraint);
-                }
-
-                for reg in 20..22 {
-                    // r_reg'
-                    let mut dict1 = HashMap::new();
-                    dict1.insert([(reg + self.num_registers, 1)].into_iter().collect(), Field::one(self.field));
-                    // r_reg
-                    let mut dict2 = HashMap::new();
-                    dict2.insert([(reg, 1)].into_iter().collect(), Field::one(self.field));
-                    // (m_h * (r_reg' − r_{reg}))
-                    let left_poly 
-                        = MPolynomial::scale_polynomial(&(&MPolynomial::new(dict1) - &MPolynomial::new(dict2)), &FieldElement::new(m_h, self.field));
-
-                    // (1 − m_h) * resc
-                    let right_poly = 
-                        MPolynomial::scale_polynomial(&pub_acc, &FieldElement::new( 1-m_h, self.field));
-                    
-                    // (1-m_s) * (   m_h * (r_reg' − r_reg)   +   (1 − m_h) * resc   ) = 0  (21)
-                    let conbined_poly = &left_poly + &right_poly;
-                    let constraint = 
-                        MPolynomial::scale_polynomial(&conbined_poly, &FieldElement::new( 1-m_s, self.field));
-                    constraints.push(constraint);
-                }
-           }
+                // (1-m_s) * (   m_h * (r_reg' − r_reg)   +   (1 − m_h) * resc   ) = 0  (21)
+                let conbined_poly = &left_poly + &right_poly;
+                let constraint = 
+                    &conbined_poly * &one_m_s_poly;
+                constraints.push(constraint);
+            }
         }
         constraints
     }
@@ -350,18 +399,23 @@ impl AggSig {
     // 集約証明の生成
     pub fn prove(&self, proofstream: &mut ProofStream) {
         // 各署名の検証とトレースの生成
+        println!("Generating traces for each signature...");
         let (is_valid, traces) = self.verify_each_sign();
         if !is_valid {
             panic!("One or more signatures are invalid.");
         }
+        println!("All signatures are valid. Proceeding with aggregation...");
         let mut traces = traces.unwrap();
 
+        println!("Generating STARK boundary constraints...");
         // 境界制約の生成
         let boundary_constraints = self.boundary_constraints();
 
+        println!("Generating STARK transition constraints...");
         // 遷移制約の生成
         let transition_constraints = self.generate_transition_constraints();
 
+        println!("Generating STARK proof...");
         // STARK証明の生成
         self.stark.prove(&mut traces, &transition_constraints, &boundary_constraints, proofstream);
     }
@@ -397,9 +451,10 @@ mod tests {
 
     #[test]
     fn test_agg_sig() {
+        println!("Aggregateの速度テスト");
         let p: u128 = 340282366920938463463374557953744961537; // (2^128) - 45 * (2^40) + 1
         let field = modulus::Field::new(p);
-        let num_signer = 2; // 署名者の数
+        let num_signer = 1; // 署名者の数
         let messages = vec![b"message1".to_vec(), b"message2".to_vec()]; // メッセージ
         let (pb1, sig1, pub_acc1) = lamport_plus_signature(&messages[0]);
         let (pb2, sig2, pub_acc2) = lamport_plus_signature(&messages[1]);
@@ -410,7 +465,7 @@ mod tests {
         
 
         let agg_sig = AggSig::new(
-            2,
+            1,
             messages,
             pub_keys,
             pub_accs,
@@ -424,9 +479,11 @@ mod tests {
             7,
         );
 
+        let start = std::time::Instant::now();
         let mut proof_stream = ProofStream::new();
         agg_sig.prove(&mut proof_stream);
-
+        let duration = start.elapsed();
+        println!("1証明生成にかかった時間: {:?}", duration);
         assert!(agg_sig.verify(&agg_sig.generate_transition_constraints(), &agg_sig.boundary_constraints(), &mut proof_stream));
     }
 }

@@ -588,4 +588,47 @@ mod tests {
         let interpolants = stark.boundary_interpolants(&boundary);
         assert_eq!(interpolants.len(), boundary.len());
     }
+
+    // TEST-3: STARK prove → verify の end-to-end テスト
+    // 1 レジスタ、4 ステップの定数トレース (register 0 = 1) に対して
+    // prove が生成した証明を verify で検証し true が返ることを確認する。
+    //
+    // 注意: 遷移制約を追加すると `max_deg - transition_quotient_degree_bounds` が
+    // usize のアンダーフローを起こす既知の問題があるため、ここでは境界制約のみを使用する。
+    // 遷移制約の e2e テストは transition_quotient_degree_bounds の修正後に追加する。
+    #[test]
+    fn test_stark_prove_verify_e2e() {
+        let field = Field::new(340282366920938463463374557953744961537);
+        let stark = Stark::new(
+            field,
+            256, // expansion_factor
+            1,   // num_colinearity_checks
+            2,   // security_level
+            1,   // num_registers
+            4,   // num_cycles
+            1,   // transition_constraints_degree
+        );
+
+        // 全ステップで register 0 = 1 の定数トレース
+        let mut trace: Vec<Vec<FieldElement>> = (0..4)
+            .map(|_| vec![FieldElement::new(1, field)])
+            .collect();
+
+        // 境界制約: ステップ 0, 1, 3 で register 0 = 1
+        // max_step = 3 → verify 内の original_trace_length = 4 = trace.len() と一致
+        // zerofier 次数 = 3 = trace 次数 → boundary quotient 次数 = 0 → shift = 0
+        let boundary = vec![
+            (0usize, 0usize, FieldElement::new(1, field)),
+            (1usize, 0usize, FieldElement::new(1, field)),
+            (3usize, 0usize, FieldElement::new(1, field)),
+        ];
+
+        let transition_constraints: Vec<MPolynomial> = vec![];
+        let mut proof_stream = ProofStream::new();
+        let proof_bytes = stark.prove(&mut trace, &transition_constraints, &boundary, &mut proof_stream);
+
+        let mut verifier_stream = ProofStream::deserialize(&proof_bytes);
+        let is_valid = stark.verify(&transition_constraints, &boundary, &mut verifier_stream);
+        assert!(is_valid, "STARK e2e: verify が true を返すべき");
+    }
 }

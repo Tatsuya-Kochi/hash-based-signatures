@@ -119,7 +119,6 @@ impl Fri {
                 return Err(e);
             }
         };
-        println!("indices_length: {}", indices.len());
 
         // FRIラウンドごとの証明データ抽出
         for i in 0..(codewords.len() - 1) {
@@ -182,8 +181,6 @@ impl Fri {
     ) -> Vec<u128> {
         let a_indices: Vec<u128> = c_indices.clone();
         let b_indices: Vec<u128> = c_indices.iter().map(|&index| index + current_codeword.len() as u128 / 2).collect();
-        println!("a_indices: {:?}", a_indices);
-        println!("b_indices: {:?}", b_indices);
 
         for s in 0..self.num_colinearity_tests {
             let s = s as usize;
@@ -248,7 +245,7 @@ impl Fri {
             .map(|i| &last_offset * &last_omega.pow(i as u128))
             .collect();
 
-        let poly = Polynomial::interpolate_domain(&last_domain, &last_codeword);
+        let poly = Polynomial::interpolate_domain_fft(&last_domain, &last_codeword);
 
         for (i, x) in last_domain.iter().enumerate() {
             let expected = poly.evaluate(x);
@@ -281,13 +278,10 @@ impl Fri {
 
         // 各ラウンドでの線形性チェックとマークル証明の検証
         for r in 0..(self.num_rounds() - 1) as usize {
-            println!("round {}, domain_length >> (r+1) = {}", r, self.domain_length >> (r + 1));
+            //println!("round {}, domain_length >> (r+1) = {}", r, self.domain_length >> (r + 1));
             let c_indices: Vec<u128> = top_indices.iter().map(|i| i % (self.domain_length >> (r + 1))).collect();
             let a_indices = c_indices.clone();
             let b_indices: Vec<u128> = a_indices.iter().map(|i| i + (self.domain_length >> (r + 1))).collect();
-            println!("c_indices: {:?}", c_indices);
-            println!("a_indices: {:?}", a_indices);
-            println!("b_indices: {:?}", b_indices);
 
             let mut aa = vec![];
             let mut bb = vec![];
@@ -314,8 +308,6 @@ impl Fri {
                     return false;
                 }
             }
-
-            println!("Round {}: Colinearity test passed", r);
             for i in 0..self.num_colinearity_tests {
                 let path = proof_stream.pull::<Vec<Vec<u8>>>();
                 let leaf = aa[i].value.to_be_bytes().to_vec();
@@ -494,7 +486,6 @@ mod tests {
             last_omega = &last_omega * &last_omega;
             last_offset = &last_offset * &last_offset;
         }
-        println!("test_omega={:?}, {:?}", last_omega, last_offset);
         let last_domain: Vec<FieldElement> = (0..last_codeword.len())
             .map(|i| &last_offset * &last_omega.pow(i as u128))
             .collect();
@@ -507,15 +498,12 @@ mod tests {
         }
         let a: &[FieldElement] = &last_codeword[0..3];
         let b: &[FieldElement] = &last_domain[0..3];  
-        println!("last_domain: {:?}", a);
-        println!("last_codeword: {:?}", b);
         assert_eq!(last_domain.len() as u128, last_codeword.len() as u128, "Last domain length does not match last codeword length");
-        let poly = Polynomial::interpolate_domain(&last_domain, &last_codeword);
+        let poly = Polynomial::interpolate_domain_fft(&last_domain, &last_codeword);
         for i in 0..(last_codeword.len()) {
             let v1 = &last_codeword[i];
             let v2 = poly.evaluate(&last_domain[i]);
             if v1 != &v2 {
-                println!("❌ mismatch at {}: expected {}, got {}", i, v1.value, v2.value);
                 assert_eq!(v1, &v2, "Polynomial evaluation mismatch at index {}", i);
             }
         }

@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(mined_bits.len(), 256);
         assert!(counter <= LamportPlus::MINE_LIMIT);
     }
-    //#[test]
+    #[test]
     fn test_keygen() {
         let mut lamport = LamportPlus::new();
         // 256ビットのランダムなビット列を生成
@@ -464,7 +464,7 @@ mod tests {
         assert_eq!(pb.len(), mined_bits.len());
         assert_eq!(pb[0].len(), 2);
     }
-    // #[test]
+    #[test]
     fn test_sign_and_verify() {
         let mut lamport = LamportPlus::new();
         // 256ビットのランダムなビット列を生成
@@ -511,7 +511,7 @@ mod tests {
         assert!(right_non_zero, "RIGHT_SIGNATURE_ACC_RANGE はゼロであってはならない");
     }
 
-    // #[test]
+    #[test]
     fn test_verify_with_trace() {
         let mut lamport = LamportPlus::new();
         // 256ビットのランダムなビット列を生成
